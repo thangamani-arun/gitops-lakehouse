@@ -1,0 +1,39 @@
+# Registers Polaris as an external Iceberg catalog inside StarRocks. This is SQL-level state
+# (not a CRD), so it's applied via a Job against the FE's MySQL port once FE is up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: starrocks-external-catalog-init
+  namespace: lakehouse-compute
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: mysql:8.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until mysql -h starrocks-fe-http -P 9030 -u root -e "SELECT 1"; do
+                echo "waiting for StarRocks FE..."; sleep 5
+              done
+              mysql -h starrocks-fe-http -P 9030 -u root <<'SQL'
+              CREATE EXTERNAL CATALOG IF NOT EXISTS polaris_catalog
+              PROPERTIES (
+                "type" = "iceberg",
+                "iceberg.catalog.type" = "rest",
+                "iceberg.catalog.uri" = "http://polaris.lakehouse-catalog.svc:8181/api/catalog",
+                "iceberg.catalog.warehouse" = "nimbus-lakehouse",
+                "aws.s3.endpoint" = "https://192.168.80.128:39090",
+                "aws.s3.enable_path_style_access" = "true",
+                "aws.s3.enable_ssl" = "true"
+              );
+              SQL

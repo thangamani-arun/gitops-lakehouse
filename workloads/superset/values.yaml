@@ -1,0 +1,42 @@
+# bitnami/superset chart. Field names follow the bitnami convention as of chart 5.0.0 --
+# double check against `helm show values bitnami/superset --version 5.0.0` at deploy time,
+# bitnami renames fields fairly often between majors.
+replicaCount: 2
+
+postgresql:
+  enabled: false
+externalDatabase:
+  host: superset-pg-rw.lakehouse-bi.svc
+  port: 5432
+  database: superset
+  existingSecret: superset-pg-app
+  existingSecretUserKey: user
+  existingSecretPasswordKey: password
+
+redis:
+  enabled: true
+  architecture: standalone
+
+worker:
+  replicaCount: 2
+
+beat:
+  enabled: true
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hostname: superset-delab.nimbus.my
+  tls: true
+  extraTls:
+    - hosts: ["superset-delab.nimbus.my"]
+      secretName: wildcard-nimbus-tls
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+# StarRocks connects via its MySQL-compatible protocol (port 9030) once
+# workloads/starrocks/external-catalog-init.yaml has registered the Iceberg catalog and GOLD
+# tables are queryable -- add the DB connection from the Superset UI/API post-deploy
+# (SQLAlchemy URI: starrocks://root:@starrocks-fe-http.lakehouse-compute.svc:9030/polaris_catalog).

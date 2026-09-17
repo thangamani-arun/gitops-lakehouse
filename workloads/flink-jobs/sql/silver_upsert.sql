@@ -1,0 +1,116 @@
+-- RAW -> SILVER: re-read the same Kafka Debezium topics directly (not RAW Iceberg) so the
+-- SILVER upsert is a clean typed merge-by-PK, keyed the way Iceberg's row-level UPDATE/DELETE
+-- expects. RAW remains the append-only audit log; SILVER is the current-state, deduped view.
+-- After each checkpoint-committed micro-batch, a row is appended to the Postgres
+-- silver_change_log table (see workloads/airflow) so Airflow can trigger only affected GOLD jobs.
+
+CREATE CATALOG polaris WITH (
+  'type' = 'iceberg',
+  'catalog-impl' = 'org.apache.iceberg.rest.RESTCatalog',
+  'uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog',
+  'warehouse' = 'nimbus-lakehouse',
+  'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
+  's3.endpoint' = 'https://192.168.80.128:39090',
+  's3.path-style-access' = 'true',
+  's3.endpoint.signing-region' = 'us-east-1'
+);
+
+USE CATALOG polaris;
+CREATE DATABASE IF NOT EXISTS silver;
+
+CREATE TEMPORARY TABLE cdc_customers (
+  customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING,
+  PRIMARY KEY (customer_id) NOT ENFORCED
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'retaildb.dbo.customers',
+  'properties.bootstrap.servers' = 'nimbus-cdc-kafka-kafka-bootstrap.lakehouse-streaming.svc:9092',
+  'properties.group.id' = 'flink-silver-customers',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'debezium-json'
+);
+
+CREATE TEMPORARY TABLE cdc_products (
+  product_id INT, name STRING, category STRING, price DOUBLE,
+  PRIMARY KEY (product_id) NOT ENFORCED
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'retaildb.dbo.products',
+  'properties.bootstrap.servers' = 'nimbus-cdc-kafka-kafka-bootstrap.lakehouse-streaming.svc:9092',
+  'properties.group.id' = 'flink-silver-products',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'debezium-json'
+);
+
+CREATE TEMPORARY TABLE cdc_sales_transactions (
+  txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT,
+  PRIMARY KEY (txn_id) NOT ENFORCED
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'retaildb.dbo.sales_transactions',
+  'properties.bootstrap.servers' = 'nimbus-cdc-kafka-kafka-bootstrap.lakehouse-streaming.svc:9092',
+  'properties.group.id' = 'flink-silver-sales-transactions',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'debezium-json'
+);
+
+CREATE TEMPORARY TABLE cdc_stores (
+  store_id INT, name STRING, city STRING,
+  PRIMARY KEY (store_id) NOT ENFORCED
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'retaildb.dbo.stores',
+  'properties.bootstrap.servers' = 'nimbus-cdc-kafka-kafka-bootstrap.lakehouse-streaming.svc:9092',
+  'properties.group.id' = 'flink-silver-stores',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'debezium-json'
+);
+
+-- ── SILVER Iceberg upsert targets (merge-on-read, PK = equality field) ─────────────
+CREATE TABLE IF NOT EXISTS silver.customers (
+  customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING,
+  PRIMARY KEY (customer_id) NOT ENFORCED
+) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
+
+CREATE TABLE IF NOT EXISTS silver.products (
+  product_id INT, name STRING, category STRING, price DOUBLE,
+  PRIMARY KEY (product_id) NOT ENFORCED
+) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
+
+CREATE TABLE IF NOT EXISTS silver.sales_transactions (
+  txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT,
+  PRIMARY KEY (txn_id) NOT ENFORCED
+) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
+
+CREATE TABLE IF NOT EXISTS silver.stores (
+  store_id INT, name STRING, city STRING,
+  PRIMARY KEY (store_id) NOT ENFORCED
+) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
+
+-- ── change/impact log sink: one JDBC upsert per micro-batch per table ──────────────
+CREATE TEMPORARY TABLE silver_change_log (
+  table_name STRING,
+  affected_keys STRING,
+  committed_at TIMESTAMP(3)
+) WITH (
+  'connector' = 'jdbc',
+  'url' = 'jdbc:postgresql://changelog-pg-rw.lakehouse-orchestration.svc:5432/changelog',
+  'table-name' = 'silver_change_log'
+);
+
+EXECUTE STATEMENT SET
+BEGIN
+  INSERT INTO silver.customers SELECT * FROM cdc_customers;
+  INSERT INTO silver.products SELECT * FROM cdc_products;
+  INSERT INTO silver.sales_transactions SELECT * FROM cdc_sales_transactions;
+  INSERT INTO silver.stores SELECT * FROM cdc_stores;
+
+  INSERT INTO silver_change_log
+    SELECT 'customers', CAST(customer_id AS STRING), CURRENT_TIMESTAMP FROM cdc_customers;
+  INSERT INTO silver_change_log
+    SELECT 'products', CAST(product_id AS STRING), CURRENT_TIMESTAMP FROM cdc_products;
+  INSERT INTO silver_change_log
+    SELECT 'sales_transactions', CAST(txn_id AS STRING), CURRENT_TIMESTAMP FROM cdc_sales_transactions;
+  INSERT INTO silver_change_log
+    SELECT 'stores', CAST(store_id AS STRING), CURRENT_TIMESTAMP FROM cdc_stores;
+END;

@@ -1,0 +1,78 @@
+# No official Ranger Helm chart exists; this is a plain Deployment against the official
+# apache/ranger image. Env var names follow the image's documented setup wrapper as of 2.9.0 --
+# verify against that image's README at deploy time, Ranger's env-driven setup has changed
+# across majors.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranger-admin
+  namespace: lakehouse-governance
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ranger-admin
+  template:
+    metadata:
+      labels:
+        app: ranger-admin
+    spec:
+      containers:
+        - name: ranger-admin
+          image: apache/ranger:2.9.0
+          args: ["admin"]
+          ports:
+            - containerPort: 6080
+          envFrom:
+            - secretRef:
+                name: ranger-pg-app
+          env:
+            - name: DB_FLAVOR
+              value: POSTGRES
+            - name: RANGER_ADMIN_DB_HOST
+              value: ranger-pg-rw.lakehouse-governance.svc
+            - name: RANGER_ADMIN_DB_NAME
+              value: ranger
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-admin
+  namespace: lakehouse-governance
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  selector:
+    app: ranger-admin
+  ports:
+    - port: 6080
+      targetPort: 6080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ranger-admin
+  namespace: lakehouse-governance
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["ranger-delab.nimbus.my"]
+      secretName: wildcard-nimbus-tls
+  rules:
+    - host: ranger-delab.nimbus.my
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ranger-admin
+                port:
+                  number: 6080

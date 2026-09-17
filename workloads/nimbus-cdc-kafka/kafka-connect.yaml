@@ -1,0 +1,42 @@
+# Debezium bundles the SQL Server connector already, so we use its official Connect image
+# directly instead of a Strimzi build pipeline -- one less moving part.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: nimbus-cdc-connect
+  namespace: lakehouse-streaming
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 2
+  image: quay.io/debezium/connect:2.7
+  bootstrapServers: nimbus-cdc-kafka-kafka-bootstrap:9092
+  config:
+    group.id: nimbus-cdc-connect-cluster
+    offset.storage.topic: nimbus-cdc-connect-offsets
+    config.storage.topic: nimbus-cdc-connect-configs
+    status.storage.topic: nimbus-cdc-connect-status
+    config.storage.replication.factor: 3
+    offset.storage.replication.factor: 3
+    status.storage.replication.factor: 3
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+    # Lets connector configs reference the mssql-credentials Secret instead of embedding
+    # the CDC-reader password in this git-tracked config.
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  template:
+    connectContainer:
+      env:
+        - name: STRIMZI_KUBERNETES_TARGET_NAMESPACES
+          value: lakehouse-streaming

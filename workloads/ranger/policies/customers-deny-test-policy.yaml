@@ -1,0 +1,68 @@
+# The plan's post-deployment acceptance test: deny a non-privileged role read access to
+# gold.customer_loyalty (derived from the PII-bearing customers table), enforced by StarRocks'
+# native Ranger plugin, and confirm both the denial and its audit trail. Applied via Ranger's
+# REST API (policies aren't a k8s CRD) once ranger-admin is reachable.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-customers-deny-policy
+  namespace: lakehouse-governance
+data:
+  policy.json: |
+    {
+      "service": "starrocks_nimbus-lakehouse",
+      "name": "deny-analyst-customer-loyalty-pii",
+      "resources": {
+        "database": { "values": ["polaris_catalog"] },
+        "table": { "values": ["customer_loyalty"] },
+        "column": { "values": ["name", "lifetime_spend"] }
+      },
+      "denyPolicyItems": [
+        {
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "roles": ["analyst_readonly"]
+        }
+      ],
+      "isAuditEnabled": true
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ranger-apply-customers-deny-policy
+  namespace: lakehouse-governance
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: apply-policy
+          image: curlimages/curl:8.10.1
+          envFrom:
+            - secretRef:
+                name: ranger-admin-credentials
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until curl -sf -u "$RANGER_ADMIN_USER:$RANGER_ADMIN_PASSWORD" \
+                http://ranger-admin.lakehouse-governance.svc:6080/service/public/v2/api/service; do
+                echo "waiting for ranger-admin..."; sleep 5
+              done
+              curl -sf -u "$RANGER_ADMIN_USER:$RANGER_ADMIN_PASSWORD" \
+                -H 'Content-Type: application/json' -X POST \
+                -d @/policy/policy.json \
+                http://ranger-admin.lakehouse-governance.svc:6080/service/public/v2/api/policy
+          volumeMounts:
+            - name: policy
+              mountPath: /policy
+      volumes:
+        - name: policy
+          configMap:
+            name: ranger-customers-deny-policy

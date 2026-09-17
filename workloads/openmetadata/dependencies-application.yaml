@@ -1,0 +1,41 @@
+# OpenMetadata's own bundled dependencies (OpenSearch for search index, MySQL for its metadata
+# store, and OM's dedicated ingestion Airflow -- distinct from workloads/airflow, which is this
+# lakehouse's orchestration Airflow, not OM's). We deliberately use the bundled MySQL/Airflow
+# here rather than forcing everything onto CNPG Postgres: this is OpenMetadata's officially
+# tested path and a first-pass shouldn't fight that for a component that's wired in last (wave 5).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workload-openmetadata-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.open-metadata.org
+    chart: openmetadata-dependencies
+    targetRevision: 2.0.2
+    helm:
+      releaseName: openmetadata-dependencies
+      values: |
+        opensearch:
+          replicas: 3
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { cpu: "2", memory: 2Gi }
+        mysql:
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+        airflow:
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lakehouse-governance
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

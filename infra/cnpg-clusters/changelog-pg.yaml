@@ -1,0 +1,31 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: changelog-pg
+  namespace: lakehouse-orchestration
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  enableSuperuserAccess: false
+  affinity:
+    podAntiAffinityType: preferred
+  bootstrap:
+    initdb:
+      database: changelog
+      owner: changelog
+      # secret omitted: CNPG auto-generates and manages changelog-pg-app
+  storage:
+    size: 5Gi
+    storageClass: ceph-block-ec
+  walStorage:
+    size: 2Gi
+    storageClass: ceph-block-ec
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  monitoring:
+    enablePodMonitor: false

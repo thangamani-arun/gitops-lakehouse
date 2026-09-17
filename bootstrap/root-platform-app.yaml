@@ -1,0 +1,24 @@
+# App-of-apps root for platform/ (operators + CRDs). Only picks up **/application.yaml files
+# (never the operators' own values inline in those files, since Helm sources' values are inline
+# strings, not separate resources) so there's no double-management risk.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+    targetRevision: main
+    path: platform
+    directory:
+      recurse: true
+      include: "**/application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

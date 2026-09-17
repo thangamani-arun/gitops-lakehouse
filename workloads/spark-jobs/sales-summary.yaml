@@ -1,0 +1,47 @@
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: sales-summary
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  type: Python
+  mode: cluster
+  image: apache/spark:3.5.3
+  imagePullPolicy: IfNotPresent
+  mainApplicationFile: local:///opt/spark-jobs/sales_summary.py
+  sparkVersion: 3.5.3
+  restartPolicy:
+    type: Never
+  deps:
+    packages:
+      - org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.1
+      - org.apache.iceberg:iceberg-aws-bundle:1.6.1
+  sparkConf:
+    spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.polaris: org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.polaris.catalog-impl: org.apache.iceberg.rest.RESTCatalog
+    spark.sql.catalog.polaris.uri: http://polaris.lakehouse-catalog.svc:8181/api/catalog
+    spark.sql.catalog.polaris.warehouse: nimbus-lakehouse
+    spark.sql.catalog.polaris.io-impl: org.apache.iceberg.aws.s3.S3FileIO
+    spark.sql.catalog.polaris.s3.endpoint: https://192.168.80.128:39090
+    spark.sql.catalog.polaris.s3.path-style-access: "true"
+  driver:
+    cores: 1
+    memory: 2g
+    serviceAccount: spark-jobs
+    volumeMounts:
+      - name: scripts
+        mountPath: /opt/spark-jobs
+  executor:
+    cores: 1
+    instances: 2
+    memory: 2g
+    volumeMounts:
+      - name: scripts
+        mountPath: /opt/spark-jobs
+  volumes:
+    - name: scripts
+      configMap:
+        name: spark-job-scripts

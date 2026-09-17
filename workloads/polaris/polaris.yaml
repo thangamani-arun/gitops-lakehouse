@@ -1,0 +1,135 @@
+# Apache Polaris has no published Helm chart yet, so this is a plain Deployment against the
+# official apache/polaris image. Config follows Polaris's EclipseLink(Postgres) + S3 persistence
+# model; double-check field names against the exact 1.7.0 docs at deploy time since this API
+# has moved fast between releases.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: polaris-config
+  namespace: lakehouse-catalog
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  polaris-server.yml: |
+    polaris:
+      persistence:
+        type: eclipse-link
+        eclipse-link:
+          persistence-unit: polaris
+          conf-file: /deployments/config/persistence.xml
+      realm-context:
+        realms:
+          - nimbus-lakehouse
+      storage:
+        # MinIO, addressed by bare IP -- see plan's Networking section. path-style + insecure
+        # TLS are required because the endpoint is IP-addressed with a self-signed cert.
+        s3:
+          endpoint: https://192.168.80.128:39090
+          path-style-access: true
+          skip-certificate-verification: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: polaris-bootstrap-credentials
+  namespace: lakehouse-catalog
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+type: Opaque
+stringData:
+  # Placeholder root principal credentials for the "nimbus-lakehouse" realm bootstrap.
+  # Rotate this at Day-0 (kubectl edit / apply a real value out-of-band) the same way
+  # mssql-credentials is handled -- do not leave the placeholder in a real environment.
+  POLARIS_BOOTSTRAP_CREDENTIALS: "nimbus-lakehouse,root,CHANGE_ME_AT_DAY0"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: polaris
+  namespace: lakehouse-catalog
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: polaris
+  template:
+    metadata:
+      labels:
+        app: polaris
+    spec:
+      containers:
+        - name: polaris
+          image: apache/polaris:1.7.0
+          args: ["server"]
+          ports:
+            - containerPort: 8181
+              name: api
+            - containerPort: 8182
+              name: mgmt
+          envFrom:
+            - secretRef:
+                name: polaris-pg-app # CNPG-generated app-user secret
+            - secretRef:
+                name: polaris-bootstrap-credentials
+          env:
+            - name: QUARKUS_DATASOURCE_JDBC_URL
+              value: "jdbc:postgresql://polaris-pg-rw.lakehouse-catalog.svc:5432/polaris"
+          volumeMounts:
+            - name: config
+              mountPath: /deployments/config
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: polaris-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: polaris
+  namespace: lakehouse-catalog
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    app: polaris
+  ports:
+    - name: api
+      port: 8181
+      targetPort: 8181
+    - name: mgmt
+      port: 8182
+      targetPort: 8182
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: polaris
+  namespace: lakehouse-catalog
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["polaris-delab.nimbus.my"]
+      secretName: wildcard-nimbus-tls
+  rules:
+    - host: polaris-delab.nimbus.my
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: polaris
+                port:
+                  number: 8181

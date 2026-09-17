@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-starrocks-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://starrocks.github.io/starrocks-kubernetes-operator
+    chart: kube-starrocks
+    targetRevision: 1.11.7
+    helm:
+      releaseName: starrocks-operator
+      values: |
+        # This chart bundles an operator subchart + an optional starrocks-cluster subchart.
+        # We only want the operator here; the actual StarRocksCluster CR is authored/managed
+        # separately under workloads/starrocks so it's an explicit, reviewable resource.
+        operator:
+          enabled: true
+        starrocks:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lakehouse-compute
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

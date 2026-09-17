@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: om-ingestion-iceberg
+  namespace: lakehouse-governance
+data:
+  workflow.yaml: |
+    source:
+      type: iceberg
+      serviceName: nimbus-lakehouse-iceberg
+      serviceConnection:
+        config:
+          type: Iceberg
+          catalog:
+            connection:
+              type: Rest
+              uri: http://polaris.lakehouse-catalog.svc:8181/api/catalog
+            warehouseLocation: nimbus-lakehouse
+      sourceConfig:
+        config:
+          type: DatabaseMetadata
+    sink:
+      type: metadata-rest
+      config: {}
+    workflowConfig:
+      openMetadataServerConfig:
+        hostPort: http://openmetadata.lakehouse-governance.svc:8585/api
+        authProvider: openmetadata
+        securityConfig:
+          jwtToken: ${OM_BOT_TOKEN}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: om-ingestion-iceberg
+  namespace: lakehouse-governance
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ingest
+              image: docker.getcollate.io/openmetadata/ingestion:1.5.11
+              command: ["metadata", "ingest", "-c", "/conf/workflow.yaml"]
+              envFrom:
+                - secretRef:
+                    name: om-bot-token
+              volumeMounts:
+                - name: conf
+                  mountPath: /conf
+          volumes:
+            - name: conf
+              configMap:
+                name: om-ingestion-iceberg

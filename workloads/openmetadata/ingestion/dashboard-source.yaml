@@ -1,0 +1,93 @@
+# StarRocks (database service, GOLD tables) + Superset (dashboards built on them) — the last
+# hop of the sales_transactions lineage chain the plan's acceptance test checks for.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: om-ingestion-starrocks
+  namespace: lakehouse-governance
+data:
+  workflow.yaml: |
+    source:
+      type: mysql # StarRocks speaks the MySQL wire protocol; OpenMetadata's mysql connector works against it
+      serviceName: nimbus-lakehouse-starrocks
+      serviceConnection:
+        config:
+          type: Mysql
+          username: root
+          hostPort: starrocks-fe-http.lakehouse-compute.svc:9030
+          databaseSchema: polaris_catalog
+      sourceConfig:
+        config:
+          type: DatabaseMetadata
+    sink:
+      type: metadata-rest
+      config: {}
+    workflowConfig:
+      openMetadataServerConfig:
+        hostPort: http://openmetadata.lakehouse-governance.svc:8585/api
+        authProvider: openmetadata
+        securityConfig:
+          jwtToken: ${OM_BOT_TOKEN}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: om-ingestion-superset
+  namespace: lakehouse-governance
+data:
+  workflow.yaml: |
+    source:
+      type: superset
+      serviceName: nimbus-lakehouse-superset
+      serviceConnection:
+        config:
+          type: Superset
+          hostPort: http://superset.lakehouse-bi.svc:8088
+          connection:
+            type: Postgres
+            username: superset
+            hostPort: superset-pg-rw.lakehouse-bi.svc:5432
+            database: superset
+      sourceConfig:
+        config:
+          type: DashboardMetadata
+    sink:
+      type: metadata-rest
+      config: {}
+    workflowConfig:
+      openMetadataServerConfig:
+        hostPort: http://openmetadata.lakehouse-governance.svc:8585/api
+        authProvider: openmetadata
+        securityConfig:
+          jwtToken: ${OM_BOT_TOKEN}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: om-ingestion-dashboards
+  namespace: lakehouse-governance
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ingest-starrocks
+              image: docker.getcollate.io/openmetadata/ingestion:1.5.11
+              command: ["metadata", "ingest", "-c", "/conf/starrocks.yaml"]
+              envFrom: [{secretRef: {name: om-bot-token}}]
+              volumeMounts: [{name: conf, mountPath: /conf}]
+          initContainers:
+            - name: ingest-superset
+              image: docker.getcollate.io/openmetadata/ingestion:1.5.11
+              command: ["metadata", "ingest", "-c", "/conf/superset.yaml"]
+              envFrom: [{secretRef: {name: om-bot-token}}]
+              volumeMounts: [{name: conf, mountPath: /conf}]
+          volumes:
+            - name: conf
+              projected:
+                sources:
+                  - configMap: {name: om-ingestion-starrocks, items: [{key: workflow.yaml, path: starrocks.yaml}]}
+                  - configMap: {name: om-ingestion-superset, items: [{key: workflow.yaml, path: superset.yaml}]}

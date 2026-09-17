@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-jobs
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-jobs-driver
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-jobs-driver
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+subjects:
+  - kind: ServiceAccount
+    name: spark-jobs
+roleRef:
+  kind: Role
+  name: spark-jobs-driver
+  apiGroup: rbac.authorization.k8s.io
+---
+# Lets the Airflow KubernetesExecutor worker SA delete/apply SparkApplications too
+# (see workloads/airflow/dags/gold_trigger_dag.py + catalog_housekeeping_dag.py).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-manages-sparkapplications
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+subjects:
+  - kind: ServiceAccount
+    name: airflow-worker
+roleRef:
+  kind: Role
+  name: spark-jobs-driver
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,7 @@
+# Explicit resource list so ArgoCD's root app-of-apps (which recurses for **/application.yaml
+# only) and this folder's own Application (sourced at this path) never both try to manage the
+# same files -- application.yaml is deliberately not listed here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml

@@ -1,0 +1,31 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: superset-pg
+  namespace: lakehouse-bi
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  enableSuperuserAccess: false
+  affinity:
+    podAntiAffinityType: preferred
+  bootstrap:
+    initdb:
+      database: superset
+      owner: superset
+      # secret omitted: CNPG auto-generates and manages superset-pg-app
+  storage:
+    size: 10Gi
+    storageClass: ceph-block-ec
+  walStorage:
+    size: 2Gi
+    storageClass: ceph-block-ec
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+  monitoring:
+    enablePodMonitor: false

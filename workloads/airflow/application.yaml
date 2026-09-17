@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workload-airflow
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  sources:
+    - repoURL: https://airflow.apache.org
+      chart: airflow
+      targetRevision: 1.22.0
+      helm:
+        releaseName: airflow # keeps SA names predictable (airflow-worker etc.) for RBAC bindings elsewhere
+        valueFiles:
+          - $values/workloads/airflow/values.yaml
+    - repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+      targetRevision: main
+      path: workloads/airflow/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lakehouse-orchestration
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

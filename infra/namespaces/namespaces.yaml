@@ -1,0 +1,44 @@
+# Rancher project annotation (field.cattle.io/projectId) puts these namespaces into the same
+# Rancher project as the existing "-dg"/cluster-infra namespaces, so wildcard-nimbus-tls's
+# project-scoped secret sync picks them up automatically instead of needing a manual copy.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-streaming
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-catalog
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-orchestration
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-compute
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-governance
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lakehouse-bi
+  annotations:
+    field.cattle.io/projectId: local:p-xxdfk

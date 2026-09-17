@@ -1,0 +1,74 @@
+apiVersion: starrocks.com/v1
+kind: StarRocksCluster
+metadata:
+  name: nimbus-lakehouse
+  namespace: lakehouse-compute
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  starRocksFeSpec:
+    replicas: 3
+    image: starrocks/fe-ubuntu:3.3-latest
+    resourceRequirements:
+      requests: { cpu: "4", memory: 8Gi }
+      limits: { cpu: "4", memory: 8Gi }
+    storageVolumes:
+      - name: fe-meta
+        storageClassName: ceph-block-ec
+        storageSize: 20Gi
+        mountPath: /opt/starrocks/fe/meta
+    service:
+      type: ClusterIP
+  starRocksBeSpec:
+    replicas: 3
+    image: starrocks/be-ubuntu:3.3-latest
+    resourceRequirements:
+      requests: { cpu: "8", memory: 16Gi }
+      limits: { cpu: "8", memory: 16Gi }
+    storageVolumes:
+      - name: be-storage
+        storageClassName: ceph-block-ec
+        storageSize: 100Gi
+        mountPath: /opt/starrocks/be/storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: starrocks-fe-http
+  namespace: lakehouse-compute
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  selector:
+    app.starrocks.com/component: fe
+  ports:
+    - name: http
+      port: 8030
+      targetPort: 8030
+    - name: mysql
+      port: 9030
+      targetPort: 9030
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: starrocks-fe
+  namespace: lakehouse-compute
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["starrocks-delab.nimbus.my"]
+      secretName: wildcard-nimbus-tls
+  rules:
+    - host: starrocks-delab.nimbus.my
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: starrocks-fe-http
+                port:
+                  number: 8030

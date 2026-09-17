@@ -1,0 +1,30 @@
+# openmetadata chart values, wired to openmetadata-dependencies' bundled MySQL/OpenSearch/Airflow
+# (see dependencies-application.yaml for why those are bundled rather than CNPG). Replicas: 2 per
+# the plan's HA sizing.
+replicaCount: 2
+
+openmetadata:
+  config:
+    database:
+      host: openmetadata-dependencies-mysql.lakehouse-governance.svc
+      port: "3306"
+      driverClass: com.mysql.cj.jdbc.Driver
+      dbScheme: mysql
+    elasticsearch:
+      host: openmetadata-dependencies-opensearch.lakehouse-governance.svc
+      port: "9200"
+      searchType: opensearch
+    pipelineServiceClientConfig:
+      hostIp: openmetadata-dependencies-web.lakehouse-governance.svc
+      apiEndpoint: http://openmetadata-dependencies-web.lakehouse-governance.svc:8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: openmetadata-delab.nimbus.my
+  tls: true
+  secretName: wildcard-nimbus-tls
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }

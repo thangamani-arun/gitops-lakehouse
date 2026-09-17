@@ -1,0 +1,58 @@
+# Creates the two small control tables the impact-based GOLD scheduling depends on:
+# silver_change_log (written by the Flink RAW->SILVER job) and gold_dependency_graph
+# (static, hand-maintained here). Idempotent (CREATE TABLE IF NOT EXISTS / ON CONFLICT).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: changelog-schema-init
+  namespace: lakehouse-orchestration
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: postgres:16-alpine
+          env:
+            - name: PGURI
+              valueFrom:
+                secretKeyRef:
+                  name: changelog-pg-app
+                  key: uri
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              psql "$PGURI" <<'SQL'
+              CREATE TABLE IF NOT EXISTS silver_change_log (
+                id BIGSERIAL PRIMARY KEY,
+                table_name TEXT NOT NULL,
+                snapshot_id BIGINT,
+                affected_keys JSONB,
+                committed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+              );
+              CREATE INDEX IF NOT EXISTS idx_silver_change_log_table_committed
+                ON silver_change_log (table_name, committed_at);
+
+              CREATE TABLE IF NOT EXISTS gold_dependency_graph (
+                gold_table TEXT NOT NULL,
+                depends_on_silver_table TEXT NOT NULL,
+                PRIMARY KEY (gold_table, depends_on_silver_table)
+              );
+
+              -- Seed the initial GOLD dependency graph. Extend this as new GOLD tables/DAGs
+              -- are added under workloads/spark-jobs.
+              INSERT INTO gold_dependency_graph (gold_table, depends_on_silver_table) VALUES
+                ('gold.sales_summary', 'sales_transactions'),
+                ('gold.sales_summary', 'products'),
+                ('gold.sales_summary', 'stores'),
+                ('gold.customer_loyalty', 'customers'),
+                ('gold.customer_loyalty', 'sales_transactions')
+              ON CONFLICT DO NOTHING;
+              SQL

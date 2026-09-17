@@ -1,0 +1,31 @@
+# Lets the KafkaConnect pod's own service account (Strimzi creates
+# "nimbus-cdc-connect-connect") read the mssql-credentials Secret via the
+# KubernetesSecretConfigProvider referenced in kafka-connect.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: read-mssql-credentials
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["mssql-credentials"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-mssql-credentials
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+subjects:
+  - kind: ServiceAccount
+    name: nimbus-cdc-connect-connect
+    namespace: lakehouse-streaming
+roleRef:
+  kind: Role
+  name: read-mssql-credentials
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lakehouse-streaming
+resources:
+  - flink-serviceaccount.yaml
+  - flinkdeployment-raw.yaml
+  - flinkdeployment-silver.yaml
+configMapGenerator:
+  - name: flink-sql-raw-ingest
+    files:
+      - sql/raw_ingest.sql
+  - name: flink-sql-silver-upsert
+    files:
+      - sql/silver_upsert.sql
+generatorOptions:
+  disableNameSuffixHash: true

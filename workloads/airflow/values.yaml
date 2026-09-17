@@ -1,0 +1,49 @@
+executor: KubernetesExecutor
+
+# External CNPG Postgres instead of the chart's bundled Postgres/Redis (KubernetesExecutor
+# needs no Redis/Celery — matches the plan's HA sizing: 2 webserver + 2 scheduler, no queue).
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+
+data:
+  # produced by manifests/metadata-secret-adapter.yaml from the CNPG-generated airflow-pg-app
+  # secret's `uri` key -- see that file's comment for why the adapter exists.
+  metadataSecretName: airflow-metadata-connection
+
+webserver:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+scheduler:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+dags:
+  gitSync:
+    enabled: true
+    repo: https://github.com/thangamani-arun/gitops-lakehouse.git
+    branch: main
+    subPath: workloads/airflow/dags
+    period: 60s
+
+ingress:
+  web:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - name: airflow-delab.nimbus.my
+        tls:
+          enabled: true
+          secretName: wildcard-nimbus-tls
+
+config:
+  webserver:
+    expose_config: "False"
+  core:
+    load_examples: "False"

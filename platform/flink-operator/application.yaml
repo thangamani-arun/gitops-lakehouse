@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-flink-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://downloads.apache.org/flink/flink-kubernetes-operator-1.16.0/
+    chart: flink-kubernetes-operator
+    targetRevision: 1.16.0
+    helm:
+      releaseName: flink-operator
+      values: |
+        watchNamespaces:
+          - lakehouse-streaming
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lakehouse-streaming
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

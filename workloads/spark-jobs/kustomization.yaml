@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lakehouse-orchestration
+resources:
+  - rbac.yaml
+  - sales-summary.yaml
+  - customer-loyalty.yaml
+  - housekeeping.yaml
+configMapGenerator:
+  - name: spark-job-scripts
+    files:
+      - scripts/sales_summary.py
+      - scripts/customer_loyalty.py
+      - scripts/housekeeping.py
+generatorOptions:
+  disableNameSuffixHash: true

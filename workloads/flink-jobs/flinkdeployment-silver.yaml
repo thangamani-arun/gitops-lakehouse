@@ -1,0 +1,44 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: raw-to-silver
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  image: nimbus-lakehouse/flink-sql-runner:1.0.0 # see README.md — build/push before first deploy
+  flinkVersion: v1_19
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "2"
+    state.checkpoints.dir: s3://nimbus-lakehouse/flink-checkpoints/raw-to-silver
+    execution.checkpointing.interval: "30s"
+    s3.endpoint: https://192.168.80.128:39090
+    s3.path.style.access: "true"
+  serviceAccount: flink
+  jobManager:
+    replicas: 2
+    resource:
+      memory: "1024m"
+      cpu: 1
+  taskManager:
+    replicas: 2
+    resource:
+      memory: "2048m"
+      cpu: 1
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          volumeMounts:
+            - name: sql
+              mountPath: /opt/flink/sql
+      volumes:
+        - name: sql
+          configMap:
+            name: flink-sql-silver-upsert
+  job:
+    jarURI: local:///opt/flink/usrlib/sql-runner.jar
+    args: ["/opt/flink/sql/silver_upsert.sql"]
+    parallelism: 2
+    upgradeMode: savepoint
+    state: running

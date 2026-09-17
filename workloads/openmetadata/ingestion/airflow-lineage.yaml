@@ -1,0 +1,62 @@
+# Pulls DAG runs + task-level lineage from THIS lakehouse's own orchestration Airflow
+# (workloads/airflow) -- not OpenMetadata's bundled ingestion Airflow. Runs more frequently
+# than the metadata-only connectors since lineage should reflect activity, not just structure.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: om-ingestion-airflow-lineage
+  namespace: lakehouse-governance
+data:
+  workflow.yaml: |
+    source:
+      type: airflow
+      serviceName: nimbus-lakehouse-airflow
+      serviceConnection:
+        config:
+          type: Airflow
+          hostPort: http://airflow-api-server.lakehouse-orchestration.svc:8080
+          connection:
+            type: Backend
+      sourceConfig:
+        config:
+          type: PipelineMetadata
+          lineageInformation:
+            dbServiceNames:
+              - retaildb-mssql
+              - nimbus-lakehouse-iceberg
+    sink:
+      type: metadata-rest
+      config: {}
+    workflowConfig:
+      openMetadataServerConfig:
+        hostPort: http://openmetadata.lakehouse-governance.svc:8585/api
+        authProvider: openmetadata
+        securityConfig:
+          jwtToken: ${OM_BOT_TOKEN}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: om-ingestion-airflow-lineage
+  namespace: lakehouse-governance
+spec:
+  schedule: "0 * * * *" # hourly; Spark/OpenLineage events land separately, in real time, via workloads/spark-jobs
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ingest
+              image: docker.getcollate.io/openmetadata/ingestion:1.5.11
+              command: ["metadata", "ingest", "-c", "/conf/workflow.yaml"]
+              envFrom:
+                - secretRef:
+                    name: om-bot-token
+              volumeMounts:
+                - name: conf
+                  mountPath: /conf
+          volumes:
+            - name: conf
+              configMap:
+                name: om-ingestion-airflow-lineage

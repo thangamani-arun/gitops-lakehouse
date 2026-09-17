@@ -1,0 +1,33 @@
+# RetailDB is already CDC-enabled at the DB and table level (verified directly, see plan's
+# "Source system" section) -- no "enable CDC" step needed here, this connector just attaches.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: retaildb-sqlserver-cdc
+  namespace: lakehouse-streaming
+  labels:
+    strimzi.io/cluster: nimbus-cdc-connect
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  class: io.debezium.connector.sqlserver.SqlServerConnector
+  tasksMax: 1
+  config:
+    database.hostname: 192.168.80.128
+    database.port: "1433"
+    database.user: "${secrets:lakehouse-streaming/mssql-credentials:cdc_username}"
+    database.password: "${secrets:lakehouse-streaming/mssql-credentials:cdc_password}"
+    database.names: RetailDB
+    database.encrypt: "true"
+    database.trustServerCertificate: "true"
+    topic.prefix: retaildb
+    table.include.list: dbo.customers,dbo.products,dbo.sales_transactions,dbo.stores
+    schema.history.internal.kafka.topic: schema-changes.retaildb
+    schema.history.internal.kafka.bootstrap.servers: nimbus-cdc-kafka-kafka-bootstrap:9092
+    snapshot.mode: initial
+    tombstones.on.delete: "false"
+    decimal.handling.mode: double
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false

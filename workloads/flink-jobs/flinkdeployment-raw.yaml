@@ -1,0 +1,44 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: kafka-to-raw
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  image: nimbus-lakehouse/flink-sql-runner:1.0.0 # see README.md — build/push before first deploy
+  flinkVersion: v1_19
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "2"
+    state.checkpoints.dir: s3://nimbus-lakehouse/flink-checkpoints/kafka-to-raw
+    execution.checkpointing.interval: "30s"
+    s3.endpoint: https://192.168.80.128:39090
+    s3.path.style.access: "true"
+  serviceAccount: flink
+  jobManager:
+    replicas: 2
+    resource:
+      memory: "1024m"
+      cpu: 1
+  taskManager:
+    replicas: 2
+    resource:
+      memory: "2048m"
+      cpu: 1
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          volumeMounts:
+            - name: sql
+              mountPath: /opt/flink/sql
+      volumes:
+        - name: sql
+          configMap:
+            name: flink-sql-raw-ingest
+  job:
+    jarURI: local:///opt/flink/usrlib/sql-runner.jar
+    args: ["/opt/flink/sql/raw_ingest.sql"]
+    parallelism: 2
+    upgradeMode: savepoint
+    state: running

@@ -1,0 +1,31 @@
+# App-of-apps root for workloads/ + infra/ (the actual lakehouse -- what `make destroy`/
+# `make redeploy` targets). Only picks up **/application.yaml, same reasoning as
+# root-platform-app.yaml: every workloads/*/kustomization.yaml or values.yaml deliberately
+# excludes its own application.yaml so nothing is ever double-managed by two Applications.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads-root
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+      targetRevision: main
+      path: infra
+      directory:
+        recurse: true
+        include: "**/application.yaml"
+    - repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+      targetRevision: main
+      path: workloads
+      directory:
+        recurse: true
+        include: "**/application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
