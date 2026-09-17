@@ -1,6 +1,7 @@
 -- RAW -> SILVER: re-read the same Kafka Debezium topics directly (not RAW Iceberg) so the
 -- SILVER upsert is a clean typed merge-by-PK, keyed the way Iceberg's row-level UPDATE/DELETE
 -- expects. RAW remains the append-only audit log; SILVER is the current-state, deduped view.
+-- Column lists verified directly against RetailDB (see plan's "Source system" section).
 -- After each checkpoint-committed micro-batch, a row is appended to the Postgres
 -- silver_change_log table (see workloads/airflow) so Airflow can trigger only affected GOLD jobs.
 
@@ -19,7 +20,9 @@ USE CATALOG polaris;
 CREATE DATABASE IF NOT EXISTS silver;
 
 CREATE TEMPORARY TABLE cdc_customers (
-  customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING,
+  customer_id INT, name STRING, email STRING, phone STRING, city STRING,
+  loyalty_tier STRING, total_spend DECIMAL(12,2), registered_at STRING,
+  created_at STRING, updated_at STRING,
   PRIMARY KEY (customer_id) NOT ENFORCED
 ) WITH (
   'connector' = 'kafka',
@@ -31,7 +34,9 @@ CREATE TEMPORARY TABLE cdc_customers (
 );
 
 CREATE TEMPORARY TABLE cdc_products (
-  product_id INT, name STRING, category STRING, price DOUBLE,
+  product_id INT, sku STRING, name STRING, category STRING, brand STRING,
+  unit_price DECIMAL(12,2), cost_price DECIMAL(12,2), is_active BOOLEAN,
+  created_at STRING, updated_at STRING,
   PRIMARY KEY (product_id) NOT ENFORCED
 ) WITH (
   'connector' = 'kafka',
@@ -43,7 +48,9 @@ CREATE TEMPORARY TABLE cdc_products (
 );
 
 CREATE TEMPORARY TABLE cdc_sales_transactions (
-  txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT,
+  txn_id INT, store_id INT, product_id INT, customer_id INT, qty INT,
+  unit_price DECIMAL(12,2), total_amount DECIMAL(12,2), status STRING,
+  txn_at STRING, created_at STRING, updated_at STRING,
   PRIMARY KEY (txn_id) NOT ENFORCED
 ) WITH (
   'connector' = 'kafka',
@@ -55,7 +62,8 @@ CREATE TEMPORARY TABLE cdc_sales_transactions (
 );
 
 CREATE TEMPORARY TABLE cdc_stores (
-  store_id INT, name STRING, city STRING,
+  store_id INT, code STRING, name STRING, city STRING, region STRING,
+  is_active BOOLEAN, opened_date STRING, created_at STRING, updated_at STRING,
   PRIMARY KEY (store_id) NOT ENFORCED
 ) WITH (
   'connector' = 'kafka',
@@ -68,22 +76,29 @@ CREATE TEMPORARY TABLE cdc_stores (
 
 -- ── SILVER Iceberg upsert targets (merge-on-read, PK = equality field) ─────────────
 CREATE TABLE IF NOT EXISTS silver.customers (
-  customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING,
+  customer_id INT, name STRING, email STRING, phone STRING, city STRING,
+  loyalty_tier STRING, total_spend DECIMAL(12,2), registered_at STRING,
+  created_at STRING, updated_at STRING,
   PRIMARY KEY (customer_id) NOT ENFORCED
 ) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
 
 CREATE TABLE IF NOT EXISTS silver.products (
-  product_id INT, name STRING, category STRING, price DOUBLE,
+  product_id INT, sku STRING, name STRING, category STRING, brand STRING,
+  unit_price DECIMAL(12,2), cost_price DECIMAL(12,2), is_active BOOLEAN,
+  created_at STRING, updated_at STRING,
   PRIMARY KEY (product_id) NOT ENFORCED
 ) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
 
 CREATE TABLE IF NOT EXISTS silver.sales_transactions (
-  txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT,
+  txn_id INT, store_id INT, product_id INT, customer_id INT, qty INT,
+  unit_price DECIMAL(12,2), total_amount DECIMAL(12,2), status STRING,
+  txn_at STRING, created_at STRING, updated_at STRING,
   PRIMARY KEY (txn_id) NOT ENFORCED
 ) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
 
 CREATE TABLE IF NOT EXISTS silver.stores (
-  store_id INT, name STRING, city STRING,
+  store_id INT, code STRING, name STRING, city STRING, region STRING,
+  is_active BOOLEAN, opened_date STRING, created_at STRING, updated_at STRING,
   PRIMARY KEY (store_id) NOT ENFORCED
 ) WITH ('format-version' = '2', 'write.upsert.enabled' = 'true');
 

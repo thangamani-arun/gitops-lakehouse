@@ -1,6 +1,7 @@
 """GOLD: sales_summary — aggregates SILVER sales_transactions/products/stores.
 Triggered selectively by the gold_impact_trigger Airflow DAG when any of its SILVER
 dependencies changes (see workloads/airflow/dags/gold_trigger_dag.py + gold_dependency_graph).
+Column names verified directly against RetailDB (see plan's "Source system" section).
 """
 from pyspark.sql import SparkSession
 
@@ -27,10 +28,10 @@ result = spark.sql(
     SELECT
       t.store_id,
       t.product_id,
-      SUM(t.qty)      AS total_qty,
-      SUM(t.amount)   AS total_amount,
-      COUNT(*)        AS txn_count,
-      current_timestamp() AS updated_at
+      SUM(t.qty)          AS total_qty,
+      SUM(t.total_amount)  AS total_amount,
+      COUNT(*)             AS txn_count,
+      current_timestamp()  AS updated_at
     FROM silver.sales_transactions t
     WHERE t.status = 'completed'
     GROUP BY t.store_id, t.product_id

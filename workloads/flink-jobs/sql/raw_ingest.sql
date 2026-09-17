@@ -1,4 +1,5 @@
 -- Kafka (Debezium JSON) -> RAW Iceberg, append-only, one INSERT per RetailDB table.
+-- Column lists verified directly against RetailDB (see plan's "Source system" section).
 -- Executed as a single STATEMENT SET so all 4 pipelines run in one Flink job/checkpoint group.
 
 CREATE CATALOG polaris WITH (
@@ -18,8 +19,12 @@ CREATE DATABASE IF NOT EXISTS raw;
 -- ── Kafka source tables (Debezium envelope) ─────────────────────────────────────────
 CREATE TEMPORARY TABLE src_customers (
   op STRING,
-  before ROW<customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING>,
-  after  ROW<customer_id INT, name STRING, city STRING, phone STRING, spend DOUBLE, loyalty_tier STRING>,
+  before ROW<customer_id INT, name STRING, email STRING, phone STRING, city STRING,
+             loyalty_tier STRING, total_spend DECIMAL(12,2), registered_at STRING,
+             created_at STRING, updated_at STRING>,
+  after  ROW<customer_id INT, name STRING, email STRING, phone STRING, city STRING,
+             loyalty_tier STRING, total_spend DECIMAL(12,2), registered_at STRING,
+             created_at STRING, updated_at STRING>,
   source ROW<ts_ms BIGINT>,
   ts_ms BIGINT
 ) WITH (
@@ -34,8 +39,12 @@ CREATE TEMPORARY TABLE src_customers (
 
 CREATE TEMPORARY TABLE src_products (
   op STRING,
-  before ROW<product_id INT, name STRING, category STRING, price DOUBLE>,
-  after  ROW<product_id INT, name STRING, category STRING, price DOUBLE>,
+  before ROW<product_id INT, sku STRING, name STRING, category STRING, brand STRING,
+             unit_price DECIMAL(12,2), cost_price DECIMAL(12,2), is_active BOOLEAN,
+             created_at STRING, updated_at STRING>,
+  after  ROW<product_id INT, sku STRING, name STRING, category STRING, brand STRING,
+             unit_price DECIMAL(12,2), cost_price DECIMAL(12,2), is_active BOOLEAN,
+             created_at STRING, updated_at STRING>,
   source ROW<ts_ms BIGINT>,
   ts_ms BIGINT
 ) WITH (
@@ -50,8 +59,12 @@ CREATE TEMPORARY TABLE src_products (
 
 CREATE TEMPORARY TABLE src_sales_transactions (
   op STRING,
-  before ROW<txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT>,
-  after  ROW<txn_id INT, customer_id INT, product_id INT, store_id INT, qty INT, amount DOUBLE, status STRING, txn_ts BIGINT>,
+  before ROW<txn_id INT, store_id INT, product_id INT, customer_id INT, qty INT,
+             unit_price DECIMAL(12,2), total_amount DECIMAL(12,2), status STRING,
+             txn_at STRING, created_at STRING, updated_at STRING>,
+  after  ROW<txn_id INT, store_id INT, product_id INT, customer_id INT, qty INT,
+             unit_price DECIMAL(12,2), total_amount DECIMAL(12,2), status STRING,
+             txn_at STRING, created_at STRING, updated_at STRING>,
   source ROW<ts_ms BIGINT>,
   ts_ms BIGINT
 ) WITH (
@@ -66,8 +79,10 @@ CREATE TEMPORARY TABLE src_sales_transactions (
 
 CREATE TEMPORARY TABLE src_stores (
   op STRING,
-  before ROW<store_id INT, name STRING, city STRING>,
-  after  ROW<store_id INT, name STRING, city STRING>,
+  before ROW<store_id INT, code STRING, name STRING, city STRING, region STRING,
+             is_active BOOLEAN, opened_date STRING, created_at STRING, updated_at STRING>,
+  after  ROW<store_id INT, code STRING, name STRING, city STRING, region STRING,
+             is_active BOOLEAN, opened_date STRING, created_at STRING, updated_at STRING>,
   source ROW<ts_ms BIGINT>,
   ts_ms BIGINT
 ) WITH (

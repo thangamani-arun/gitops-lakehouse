@@ -1,4 +1,6 @@
-"""GOLD: customer_loyalty — joins SILVER customers with their sales_transactions history."""
+"""GOLD: customer_loyalty — joins SILVER customers with their sales_transactions history.
+Column names verified directly against RetailDB (see plan's "Source system" section).
+"""
 from pyspark.sql import SparkSession
 
 spark = SparkSession.builder.appName("gold-customer-loyalty").getOrCreate()
@@ -25,12 +27,12 @@ result = spark.sql(
       c.customer_id,
       c.name,
       c.loyalty_tier,
-      c.spend AS lifetime_spend,
+      c.total_spend AS lifetime_spend,
       COUNT(t.txn_id) AS txn_count,
       current_timestamp() AS updated_at
     FROM silver.customers c
     LEFT JOIN silver.sales_transactions t ON t.customer_id = c.customer_id
-    GROUP BY c.customer_id, c.name, c.loyalty_tier, c.spend
+    GROUP BY c.customer_id, c.name, c.loyalty_tier, c.total_spend
     """
 )
 
