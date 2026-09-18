@@ -27,6 +27,21 @@ spec:
         mysql:
           resources:
             requests: { cpu: 250m, memory: 512Mi }
+          # Default startupProbe.timeoutSeconds: 1 is too tight for this cluster's disk I/O --
+          # `mysqladmin ping` kept timing out mid-InnoDB-init, so kubelet killed the container
+          # before it finished creating its redo logs, corrupting the data dir on every attempt
+          # (confirmed via repeated "Cannot create redo log files because data files are
+          # corrupt" on otherwise-fresh PVCs). Widened probe timing so a slow-but-alive mysqld
+          # isn't killed mid-startup.
+          primary:
+            startupProbe:
+              timeoutSeconds: 10
+              periodSeconds: 15
+              failureThreshold: 20
+            livenessProbe:
+              timeoutSeconds: 10
+            readinessProbe:
+              timeoutSeconds: 10
         airflow:
           resources:
             requests: { cpu: 250m, memory: 512Mi }
