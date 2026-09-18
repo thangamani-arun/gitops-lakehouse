@@ -1,7 +1,7 @@
 # ~500KB/s CDC workload -> a small 3-node combined broker+controller (KRaft) cluster is
 # comfortably right-sized. See infra/cnpg-clusters and platform/strimzi-operator for
 # prerequisites (Postgres not needed here, but the Strimzi operator must be running first).
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: dual-role
@@ -28,7 +28,7 @@ spec:
       cpu: "1"
       memory: 2Gi
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: nimbus-cdc-kafka

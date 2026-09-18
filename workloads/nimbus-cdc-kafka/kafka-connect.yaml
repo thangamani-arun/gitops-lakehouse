@@ -1,6 +1,6 @@
 # Debezium bundles the SQL Server connector already, so we use its official Connect image
 # directly instead of a Strimzi build pipeline -- one less moving part.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
   name: nimbus-cdc-connect

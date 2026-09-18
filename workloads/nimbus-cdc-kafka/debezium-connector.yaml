@@ -1,6 +1,6 @@
 # RetailDB is already CDC-enabled at the DB and table level (verified directly, see plan's
 # "Source system" section) -- no "enable CDC" step needed here, this connector just attaches.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnector
 metadata:
   name: retaildb-sqlserver-cdc
