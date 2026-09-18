@@ -39,8 +39,11 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   kafka:
-    version: 3.9.0
-    metadataVersion: 3.9-IV0
+    # This Strimzi build only supports Kafka 4.2.0/4.2.1/4.3.0/4.3.1 (confirmed via the Kafka
+    # CR's own NotReady condition: "Unsupported Kafka.spec.kafka.version: 3.9.0" -- the original
+    # 3.9.0 guess was wrong for this operator version). metadataVersion deliberately omitted;
+    # Strimzi defaults it to match kafka.version, avoiding a second version-string guess.
+    version: 4.3.1
     # No external listener: Debezium (KafkaConnect) and Flink both run in-cluster.
     listeners:
       - name: plain
