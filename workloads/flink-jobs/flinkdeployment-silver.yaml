@@ -6,39 +6,93 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  image: nimbus-lakehouse/flink-sql-runner:1.0.0 # see README.md — build/push before first deploy
+  image: flink:1.19-scala_2.12-java17
   flinkVersion: v1_19
   flinkConfiguration:
     taskmanager.numberOfTaskSlots: "2"
-    state.checkpoints.dir: s3://nimbus-lakehouse/flink-checkpoints/raw-to-silver
+    state.checkpoints.dir: s3://lab-datalakehouse/nimbus-lakehouse/flink-checkpoints/raw-to-silver
     execution.checkpointing.interval: "30s"
     s3.endpoint: https://192.168.80.128:39090
     s3.path.style.access: "true"
   serviceAccount: flink
+  podTemplate:
+    spec:
+      hostAliases:
+        - ip: "192.168.80.128"
+          hostnames: ["minio.nimbus.my"]
+      initContainers:
+        - name: fetch-connectors
+          image: flink:1.19-scala_2.12-java17
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              cp -r /opt/flink/lib/* /shared-lib/
+              cd /shared-lib
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-flink-runtime-1.19/1.10.2/iceberg-flink-runtime-1.19-1.10.2.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.2/iceberg-aws-bundle-1.10.2.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/flink/flink-connector-jdbc/3.2.0-1.19/flink-connector-jdbc-3.2.0-1.19.jar
+              curl -fsSL -O https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
+          volumeMounts:
+            - name: shared-lib
+              mountPath: /shared-lib
+      containers:
+        - name: flink-main-container
+          envFrom:
+            - secretRef: { name: minio-credentials }
+          volumeMounts:
+            - name: shared-lib
+              mountPath: /opt/flink/lib
+      volumes:
+        - name: shared-lib
+          emptyDir: {}
   jobManager:
-    replicas: 2
+    replicas: 1
     resource:
-      memory: "1024m"
+      memory: "1536m"
       cpu: 1
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+          - name: sql-gateway
+            image: flink:1.19-scala_2.12-java17
+            command: ["/opt/flink/bin/sql-gateway.sh"]
+            args:
+              - start-foreground
+              - "-Dsql-gateway.endpoint.rest.address=0.0.0.0"
+              - "-Dsql-gateway.endpoint.rest.port=8083"
+              - "-Drest.address=localhost"
+              - "-Drest.port=8081"
+              - "-Djobmanager.rpc.address=localhost"
+            ports:
+              - containerPort: 8083
+                name: sql-gateway
+            envFrom:
+              - secretRef: { name: minio-credentials }
+            volumeMounts:
+              - name: shared-lib
+                mountPath: /opt/flink/lib
   taskManager:
     replicas: 2
     resource:
       memory: "2048m"
       cpu: 1
-  podTemplate:
-    spec:
-      containers:
-        - name: flink-main-container
-          volumeMounts:
-            - name: sql
-              mountPath: /opt/flink/sql
-      volumes:
-        - name: sql
-          configMap:
-            name: flink-sql-silver-upsert
-  job:
-    jarURI: local:///opt/flink/usrlib/sql-runner.jar
-    args: ["/opt/flink/sql/silver_upsert.sql"]
-    parallelism: 2
-    upgradeMode: savepoint
-    state: running
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: raw-to-silver-sql-gateway
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: raw-to-silver
+    component: jobmanager
+  ports:
+    - name: sql-gateway
+      port: 8083
+      targetPort: 8083

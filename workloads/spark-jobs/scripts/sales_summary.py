@@ -3,9 +3,20 @@ Triggered selectively by the gold_impact_trigger Airflow DAG when any of its SIL
 dependencies changes (see workloads/airflow/dags/gold_trigger_dag.py + gold_dependency_graph).
 Column names verified directly against RetailDB (see plan's "Source system" section).
 """
+import os
+
 from pyspark.sql import SparkSession
 
-spark = SparkSession.builder.appName("gold-sales-summary").getOrCreate()
+# Polaris OAuth credential/scope/realm come from env vars (POLARIS_CLIENT_ID/SECRET, mounted from
+# the polaris-catalog-credentials Secret) rather than static sparkConf in the SparkApplication CR,
+# so the root credential never ends up in plaintext in git.
+spark = (
+    SparkSession.builder.appName("gold-sales-summary")
+    .config("spark.sql.catalog.polaris.credential", f"{os.environ['POLARIS_CLIENT_ID']}:{os.environ['POLARIS_CLIENT_SECRET']}")
+    .config("spark.sql.catalog.polaris.scope", "PRINCIPAL_ROLE:ALL")
+    .config("spark.sql.catalog.polaris.header.Polaris-Realm", "nimbus-lakehouse")
+    .getOrCreate()
+)
 
 spark.sql("USE polaris")
 spark.sql("CREATE DATABASE IF NOT EXISTS gold")

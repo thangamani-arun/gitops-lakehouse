@@ -34,6 +34,12 @@ spec:
     cores: 1
     memory: 2g
     serviceAccount: spark-jobs
+    envFrom:
+      - secretRef: { name: minio-credentials } # AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY -- S3FileIO's
+        # default AWS SDK credential chain picks these up automatically, no sparkConf needed.
+      - secretRef: { name: polaris-catalog-credentials } # POLARIS_CLIENT_ID/SECRET -- consumed by
+        # the job script itself (see scripts/sales_summary.py), not sparkConf, to keep the
+        # credential out of this git-committed CR.
     volumeMounts:
       - name: scripts
         mountPath: /opt/spark-jobs
@@ -41,6 +47,9 @@ spec:
     cores: 1
     instances: 2
     memory: 2g
+    envFrom:
+      - secretRef: { name: minio-credentials }
+      - secretRef: { name: polaris-catalog-credentials }
     volumeMounts:
       - name: scripts
         mountPath: /opt/spark-jobs

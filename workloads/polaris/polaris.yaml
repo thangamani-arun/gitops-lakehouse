@@ -48,9 +48,17 @@ spec:
               value: relational-jdbc
             - name: QUARKUS_DATASOURCE_JDBC_URL
               value: "jdbc:postgresql://polaris-pg-rw.lakehouse-catalog.svc:5432/polaris"
+            # CNPG's app secret uses lowercase `username`/`password` keys, not the
+            # QUARKUS_DATASOURCE_* names Quarkus expects -- envFrom dumps keys verbatim, so this
+            # needs explicit secretKeyRef mapping (envFrom alone silently produced "no password
+            # provided" SCRAM auth failures).
+            - name: QUARKUS_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: polaris-pg-app, key: username }
+            - name: QUARKUS_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: polaris-pg-app, key: password }
           envFrom:
-            - secretRef:
-                name: polaris-pg-app # CNPG-generated app-user secret (QUARKUS_DATASOURCE_USERNAME/PASSWORD)
             - secretRef:
                 name: polaris-bootstrap-credentials
 ---
@@ -71,6 +79,18 @@ spec:
       labels:
         app: polaris
     spec:
+      # MinIO's cert is a real Sectigo-issued *.nimbus.my wildcard (not self-signed) -- connecting
+      # by bare IP fails AWS SDK v2's TLS hostname check ("Certificate for <192.168.80.128>
+      # doesn't match any of the subject alternative names"), and AWS SDK v2 has no config-level
+      # way to disable hostname verification (removed vs. v1; confirmed via aws-sdk-java-v2#2966
+      # -- it's code-level only, TRUST_ALL_CERTIFICATES on a custom client builder, which Iceberg's
+      # S3FileIO doesn't expose as a property). A custom JVM truststore trusting the leaf cert was
+      # tried first and did NOT fix it -- trust and hostname verification are separate checks.
+      # Real fix: give the pod a hostAlias so it reaches MinIO through a name the cert actually
+      # covers, and point POLARIS_STORAGE_S3_ENDPOINT at that name instead of the bare IP.
+      hostAliases:
+        - ip: "192.168.80.128"
+          hostnames: ["minio.nimbus.my"]
       containers:
         - name: polaris
           image: apache/polaris:1.7.0
@@ -83,27 +103,38 @@ spec:
               name: api
             - containerPort: 8182
               name: mgmt
-          envFrom:
-            - secretRef:
-                name: polaris-pg-app # CNPG-generated app-user secret
           env:
             - name: POLARIS_PERSISTENCE_TYPE
               value: relational-jdbc
             - name: QUARKUS_DATASOURCE_JDBC_URL
               value: "jdbc:postgresql://polaris-pg-rw.lakehouse-catalog.svc:5432/polaris"
+            # See the bootstrap Job's comment above: CNPG's secret keys don't match Quarkus's
+            # expected env var names, so these need explicit secretKeyRef mapping, not envFrom.
+            - name: QUARKUS_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: polaris-pg-app, key: username }
+            - name: QUARKUS_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: polaris-pg-app, key: password }
             - name: POLARIS_REALM_CONTEXT_REALMS
               value: nimbus-lakehouse
-            # MinIO, addressed by bare IP -- see plan's Networking section. path-style + insecure
-            # TLS are required because the endpoint is IP-addressed with a self-signed cert.
-            # Set as env vars (not a mounted config file -- see note above on why that never
-            # worked): Quarkus/SmallRye Config maps any polaris.* property to an env var by
-            # upper-casing and replacing non-alphanumerics with underscores.
+            # MinIO -- reached via the hostAlias above (minio.nimbus.my) rather than the bare
+            # IP, so the real Sectigo *.nimbus.my cert validates normally; no cert/hostname
+            # bypass needed. Set as env vars (not a mounted config file -- see note above on why
+            # that never worked): Quarkus/SmallRye Config maps any polaris.* property to an env
+            # var by upper-casing and replacing non-alphanumerics with underscores.
             - name: POLARIS_STORAGE_S3_ENDPOINT
-              value: "https://192.168.80.128:39090"
+              value: "https://minio.nimbus.my:39090"
             - name: POLARIS_STORAGE_S3_PATH_STYLE_ACCESS
               value: "true"
-            - name: POLARIS_STORAGE_S3_SKIP_CERTIFICATE_VERIFICATION
-              value: "true"
+          envFrom:
+            # Polaris itself (not just its Spark/Flink clients) needs MinIO credentials --
+            # confirmed via a server-side "SdkClientException: Unable to load credentials"
+            # wrapped in a client-visible NotAuthorizedException on CREATE TABLE, since Polaris
+            # touches S3 directly (e.g. validating the table's base location) even with
+            # stsUnavailable: true skipping credential vending to clients.
+            - secretRef:
+                name: minio-credentials
           resources:
             requests:
               cpu: 250m

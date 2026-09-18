@@ -11,13 +11,18 @@ CREATE CATALOG polaris WITH (
   'uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog',
   'warehouse' = 'nimbus-lakehouse',
   'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
-  's3.endpoint' = 'https://192.168.80.128:39090',
+  's3.endpoint' = 'https://minio.nimbus.my:39090',
   's3.path-style-access' = 'true',
-  's3.endpoint.signing-region' = 'us-east-1'
+  's3.endpoint.signing-region' = 'us-east-1',
+  'credential' = '${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}',
+  'scope' = 'PRINCIPAL_ROLE:ALL',
+  'header.Polaris-Realm' = 'nimbus-lakehouse',
+  'oauth2-server-uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog/v1/oauth/tokens'
 );
 
 USE CATALOG polaris;
-CREATE DATABASE IF NOT EXISTS silver;
+-- No CREATE DATABASE here -- see raw_ingest.sql's comment: the silver namespace is pre-created
+-- via the Polaris REST API directly, sidestepping an Iceberg/Flink-vs-Polaris response-parsing bug.
 
 CREATE TEMPORARY TABLE cdc_customers (
   customer_id INT, name STRING, email STRING, phone STRING, city STRING,
@@ -110,7 +115,9 @@ CREATE TEMPORARY TABLE silver_change_log (
 ) WITH (
   'connector' = 'jdbc',
   'url' = 'jdbc:postgresql://changelog-pg-rw.lakehouse-orchestration.svc:5432/changelog',
-  'table-name' = 'silver_change_log'
+  'table-name' = 'silver_change_log',
+  'username' = '${CHANGELOG_PG_USERNAME}',
+  'password' = '${CHANGELOG_PG_PASSWORD}'
 );
 
 EXECUTE STATEMENT SET

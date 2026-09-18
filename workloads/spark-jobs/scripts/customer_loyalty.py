@@ -1,9 +1,19 @@
 """GOLD: customer_loyalty — joins SILVER customers with their sales_transactions history.
 Column names verified directly against RetailDB (see plan's "Source system" section).
 """
+import os
+
 from pyspark.sql import SparkSession
 
-spark = SparkSession.builder.appName("gold-customer-loyalty").getOrCreate()
+# See sales_summary.py for why the Polaris credential is injected via env var here rather than
+# static sparkConf in the SparkApplication CR (keeps the root credential out of git).
+spark = (
+    SparkSession.builder.appName("gold-customer-loyalty")
+    .config("spark.sql.catalog.polaris.credential", f"{os.environ['POLARIS_CLIENT_ID']}:{os.environ['POLARIS_CLIENT_SECRET']}")
+    .config("spark.sql.catalog.polaris.scope", "PRINCIPAL_ROLE:ALL")
+    .config("spark.sql.catalog.polaris.header.Polaris-Realm", "nimbus-lakehouse")
+    .getOrCreate()
+)
 
 spark.sql("USE polaris")
 spark.sql("CREATE DATABASE IF NOT EXISTS gold")

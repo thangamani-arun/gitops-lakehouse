@@ -1,0 +1,86 @@
+# One-shot Jobs that submit sql/raw_ingest.sql and sql/silver_upsert.sql to their respective
+# FlinkDeployment's SQL Gateway sidecar (see README.md). Sync-wave 3 so the gateway (wave 2,
+# part of the FlinkDeployment) has had a chance to come up first -- sql-submit.py also retries
+# against the gateway's /v1/info for up to 5 minutes on its own, so this is a soft ordering, not
+# a hard requirement.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-sql-submit-raw
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: submit
+          image: python:3.12-slim
+          command: ["python3", "/scripts/sql-submit.py"]
+          env:
+            - name: GATEWAY_URL
+              value: http://kafka-to-raw-sql-gateway.lakehouse-streaming.svc:8083
+            - name: SQL_FILE
+              value: /sql/raw_ingest.sql
+          envFrom:
+            - secretRef: { name: polaris-catalog-credentials }
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: script
+          configMap:
+            name: flink-sql-submit-script
+        - name: sql
+          configMap:
+            name: flink-sql-raw-ingest
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-sql-submit-silver
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: submit
+          image: python:3.12-slim
+          command: ["python3", "/scripts/sql-submit.py"]
+          env:
+            - name: GATEWAY_URL
+              value: http://raw-to-silver-sql-gateway.lakehouse-streaming.svc:8083
+            - name: SQL_FILE
+              value: /sql/silver_upsert.sql
+            # changelog-pg-app is a CNPG secret in lakehouse-orchestration, not readable
+            # cross-namespace -- changelog-pg-credentials is a copy of its username/password
+            # keys, created out-of-band in this namespace (kubectl, not git, since it's a copy
+            # of live credential material, not something to template/duplicate in a manifest).
+            - name: CHANGELOG_PG_USERNAME
+              valueFrom:
+                secretKeyRef: { name: changelog-pg-credentials, key: username }
+            - name: CHANGELOG_PG_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: changelog-pg-credentials, key: password }
+          envFrom:
+            - secretRef: { name: polaris-catalog-credentials }
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: script
+          configMap:
+            name: flink-sql-submit-script
+        - name: sql
+          configMap:
+            name: flink-sql-silver-upsert

@@ -6,39 +6,98 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  image: nimbus-lakehouse/flink-sql-runner:1.0.0 # see README.md — build/push before first deploy
+  image: flink:1.19-scala_2.12-java17 # stock image -- see README.md for why no custom build is needed
   flinkVersion: v1_19
+  # Session mode (no `job:` field): the SQL Gateway sidecar (added to jobManager below) submits
+  # the job instead of the operator's own Application-mode job runner.
   flinkConfiguration:
     taskmanager.numberOfTaskSlots: "2"
-    state.checkpoints.dir: s3://nimbus-lakehouse/flink-checkpoints/kafka-to-raw
+    state.checkpoints.dir: s3://lab-datalakehouse/nimbus-lakehouse/flink-checkpoints/kafka-to-raw
     execution.checkpointing.interval: "30s"
     s3.endpoint: https://192.168.80.128:39090
     s3.path.style.access: "true"
   serviceAccount: flink
+  # Applies to both jobmanager and taskmanager pods: the connector-jar init container and the
+  # shared-lib volume they both need on their classpath, plus MinIO creds for S3FileIO.
+  podTemplate:
+    spec:
+      hostAliases:
+        - ip: "192.168.80.128"
+          hostnames: ["minio.nimbus.my"]
+      initContainers:
+        - name: fetch-connectors
+          image: flink:1.19-scala_2.12-java17
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              cp -r /opt/flink/lib/* /shared-lib/
+              cd /shared-lib
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-flink-runtime-1.19/1.10.2/iceberg-flink-runtime-1.19-1.10.2.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.10.2/iceberg-aws-bundle-1.10.2.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
+              curl -fsSL -O https://repo1.maven.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+          volumeMounts:
+            - name: shared-lib
+              mountPath: /shared-lib
+      containers:
+        - name: flink-main-container
+          envFrom:
+            - secretRef: { name: minio-credentials } # AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY for S3FileIO
+          volumeMounts:
+            - name: shared-lib
+              mountPath: /opt/flink/lib
+      volumes:
+        - name: shared-lib
+          emptyDir: {}
   jobManager:
-    replicas: 2
+    replicas: 1 # HA JM leader election needs a HA store (zookeeper/k8s configmap lock) not
+    # configured here; single JM is the Day-0 tradeoff, revisit for HA in Day-2.
     resource:
-      memory: "1024m"
+      memory: "1536m"
       cpu: 1
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+          # SQL Gateway sidecar: submits raw_ingest.sql once up (see the flink-sql-submit-raw
+          # Job) and stays up as the REST endpoint any future re-submission goes through.
+          - name: sql-gateway
+            image: flink:1.19-scala_2.12-java17
+            command: ["/opt/flink/bin/sql-gateway.sh"]
+            args:
+              - start-foreground
+              - "-Dsql-gateway.endpoint.rest.address=0.0.0.0"
+              - "-Dsql-gateway.endpoint.rest.port=8083"
+              - "-Drest.address=localhost"
+              - "-Drest.port=8081"
+              - "-Djobmanager.rpc.address=localhost"
+            ports:
+              - containerPort: 8083
+                name: sql-gateway
+            envFrom:
+              - secretRef: { name: minio-credentials }
+            volumeMounts:
+              - name: shared-lib
+                mountPath: /opt/flink/lib
   taskManager:
     replicas: 2
     resource:
       memory: "2048m"
       cpu: 1
-  podTemplate:
-    spec:
-      containers:
-        - name: flink-main-container
-          volumeMounts:
-            - name: sql
-              mountPath: /opt/flink/sql
-      volumes:
-        - name: sql
-          configMap:
-            name: flink-sql-raw-ingest
-  job:
-    jarURI: local:///opt/flink/usrlib/sql-runner.jar
-    args: ["/opt/flink/sql/raw_ingest.sql"]
-    parallelism: 2
-    upgradeMode: savepoint
-    state: running
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-to-raw-sql-gateway
+  namespace: lakehouse-streaming
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: kafka-to-raw
+    component: jobmanager
+  ports:
+    - name: sql-gateway
+      port: 8083
+      targetPort: 8083

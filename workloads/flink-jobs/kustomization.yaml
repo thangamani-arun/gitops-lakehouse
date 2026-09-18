@@ -5,6 +5,7 @@ resources:
   - flink-serviceaccount.yaml
   - flinkdeployment-raw.yaml
   - flinkdeployment-silver.yaml
+  - sql-submit-jobs.yaml
 configMapGenerator:
   - name: flink-sql-raw-ingest
     files:
@@ -12,5 +13,8 @@ configMapGenerator:
   - name: flink-sql-silver-upsert
     files:
       - sql/silver_upsert.sql
+  - name: flink-sql-submit-script
+    files:
+      - sql-submit.py
 generatorOptions:
   disableNameSuffixHash: true

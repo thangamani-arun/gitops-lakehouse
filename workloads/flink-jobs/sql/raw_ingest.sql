@@ -8,13 +8,23 @@ CREATE CATALOG polaris WITH (
   'uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog',
   'warehouse' = 'nimbus-lakehouse',
   'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
-  's3.endpoint' = 'https://192.168.80.128:39090',
+  's3.endpoint' = 'https://minio.nimbus.my:39090',
   's3.path-style-access' = 'true',
-  's3.endpoint.signing-region' = 'us-east-1'
+  's3.endpoint.signing-region' = 'us-east-1',
+  -- ${POLARIS_CLIENT_ID}/${POLARIS_CLIENT_SECRET} are substituted at submission time by
+  -- sql-submit.py from the polaris-catalog-credentials Secret, never committed in plaintext.
+  'credential' = '${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}',
+  'scope' = 'PRINCIPAL_ROLE:ALL',
+  'header.Polaris-Realm' = 'nimbus-lakehouse',
+  'oauth2-server-uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog/v1/oauth/tokens'
 );
 
 USE CATALOG polaris;
-CREATE DATABASE IF NOT EXISTS raw;
+-- No CREATE DATABASE here: this iceberg-flink-runtime version's RESTSessionCatalog.createNamespace
+-- crashes parsing Polaris's response (MismatchedInputException on an empty body) even with
+-- ignoreIfExists=true, a client/server response-format incompatibility, not a real conflict.
+-- The raw/silver/gold namespaces are pre-created directly via the Polaris REST API instead
+-- (see the Day-0 catalog bootstrap notes) -- sidesteps the bug rather than working around it here.
 
 -- ── Kafka source tables (Debezium envelope) ─────────────────────────────────────────
 CREATE TEMPORARY TABLE src_customers (
@@ -96,22 +106,26 @@ CREATE TEMPORARY TABLE src_stores (
 );
 
 -- ── RAW Iceberg sinks (append-only CDC envelope, per plan's RAW convention) ────────
-CREATE TABLE IF NOT EXISTS raw.customers (
+-- No PARTITIONED BY: Flink SQL's clause only accepts plain column references, not Iceberg
+-- transform functions like days(...) (that's Spark-only syntax) -- confirmed via a parser
+-- error ("Encountered '(' ") when this was first written with `PARTITIONED BY (days(ingested_at))`.
+-- Not partitioning RAW is fine for Day-0; it's an optimization, not a correctness requirement.
+CREATE TABLE IF NOT EXISTS `raw`.customers (
   op STRING, before_json STRING, after_json STRING, source_ts_ms BIGINT, ingested_at TIMESTAMP(3)
-) PARTITIONED BY (days(ingested_at)) WITH ('format-version' = '2');
+) WITH ('format-version' = '2');
 
-CREATE TABLE IF NOT EXISTS raw.products LIKE raw.customers;
-CREATE TABLE IF NOT EXISTS raw.sales_transactions LIKE raw.customers;
-CREATE TABLE IF NOT EXISTS raw.stores LIKE raw.customers;
+CREATE TABLE IF NOT EXISTS `raw`.products LIKE `raw`.customers;
+CREATE TABLE IF NOT EXISTS `raw`.sales_transactions LIKE `raw`.customers;
+CREATE TABLE IF NOT EXISTS `raw`.stores LIKE `raw`.customers;
 
 EXECUTE STATEMENT SET
 BEGIN
-  INSERT INTO raw.customers
+  INSERT INTO `raw`.customers
     SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_customers;
-  INSERT INTO raw.products
+  INSERT INTO `raw`.products
     SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_products;
-  INSERT INTO raw.sales_transactions
+  INSERT INTO `raw`.sales_transactions
     SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_sales_transactions;
-  INSERT INTO raw.stores
+  INSERT INTO `raw`.stores
     SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_stores;
 END;
