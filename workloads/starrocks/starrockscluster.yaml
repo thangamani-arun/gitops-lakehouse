@@ -8,10 +8,12 @@ metadata:
 spec:
   starRocksFeSpec:
     replicas: 3
-    image: starrocks/fe-ubuntu:3.3-latest
-    resourceRequirements:
-      requests: { cpu: "4", memory: 8Gi }
-      limits: { cpu: "4", memory: 8Gi }
+    image: starrocks/fe-ubuntu:4.1.4 # 4.1.5 requested but doesn't exist on Docker Hub; 4.1.4 is the latest 4.1.x tag
+    # requests/limits are flat top-level fields on this CRD version, not nested under a
+    # resourceRequirements object -- found via `kubectl explain`, which listed no such field
+    # (the cluster was apparently created against an older CRD version that did support it).
+    requests: { cpu: "4", memory: 8Gi }
+    limits: { cpu: "4", memory: 8Gi }
     storageVolumes:
       - name: fe-meta
         storageClassName: ceph-block-ec
@@ -21,10 +23,9 @@ spec:
       type: ClusterIP
   starRocksBeSpec:
     replicas: 3
-    image: starrocks/be-ubuntu:3.3-latest
-    resourceRequirements:
-      requests: { cpu: "8", memory: 16Gi }
-      limits: { cpu: "8", memory: 16Gi }
+    image: starrocks/be-ubuntu:4.1.4 # 4.1.5 requested but doesn't exist on Docker Hub; 4.1.4 is the latest 4.1.x tag
+    requests: { cpu: "8", memory: 16Gi }
+    limits: { cpu: "8", memory: 16Gi }
     storageVolumes:
       - name: be-storage
         storageClassName: ceph-block-ec
@@ -39,8 +40,16 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
+  # app.starrocks.com/component was the wrong label key -- FE pods actually carry
+  # app.kubernetes.io/component=fe (confirmed via `kubectl get pod --show-labels`), so this
+  # Service had zero endpoints the whole time, silently blocking anything that used it
+  # (starrocks-external-catalog-init's Job, the ingress). Also scoped to this StarRocksCluster
+  # specifically via the ownerreference label -- the platform chart's own default
+  # "kube-starrocks" release is also running in this namespace and shares the plain
+  # component=fe label.
   selector:
-    app.starrocks.com/component: fe
+    app.kubernetes.io/component: fe
+    app.starrocks.ownerreference/name: nimbus-lakehouse-fe
   ports:
     - name: http
       port: 8030

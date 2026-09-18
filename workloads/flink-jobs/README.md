@@ -54,7 +54,13 @@ confirmed as the cause).
 
 Spark's GOLD `SparkApplication`s authenticate to and write into the same Polaris catalog
 successfully, so this is specific to Flink's REST client / request pattern, not Polaris auth as
-a whole. Next step, if picked back up: file/search an upstream Polaris issue with this exact
-repro (single INSERT, single session, immediately-preceding successful CREATE TABLE), or try a
-different Iceberg REST client path (e.g. drop the SQL Gateway and use `sql-client.sh` directly
-against the session cluster instead).
+a whole -- **update**: also reproduced independently on StarRocks's external catalog
+(`workloads/starrocks/external-catalog-init.yaml`), a completely different client codebase, with
+the identical signature (failing `GET` on a Vert.x event-loop thread, no authenticated user).
+Two unrelated clients hitting the same symptom, while Spark's REST client doesn't, is strong
+evidence this is a genuine Polaris server-side bug (something about the request pattern/timing
+those two clients share and Spark's doesn't), not a Flink- or StarRocks-specific issue. Next
+step, if picked back up: file an upstream Polaris issue with this exact repro (single
+GET/INSERT-resolution call, immediately after a successful call in the same session), or dig
+into what Spark's iceberg-spark-runtime HTTP client does differently (connection pooling/
+threading model) that avoids triggering it.
