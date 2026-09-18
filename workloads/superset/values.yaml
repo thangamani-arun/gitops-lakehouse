@@ -1,16 +1,23 @@
-# bitnami/superset chart. Field names follow the bitnami convention as of chart 5.0.0 --
-# double check against `helm show values bitnami/superset --version 5.0.0` at deploy time,
-# bitnami renames fields fairly often between majors.
+# bitnami/superset chart. Verified against `helm show values bitnami/superset --version 5.0.0`
+# after the first deploy attempt failed template rendering.
 replicaCount: 2
 
 postgresql:
   enabled: false
+  # The chart's "waitForDB" initContainer references postgresql.image unconditionally even when
+  # the bundled subchart is disabled (a bitnami common-chart quirk) -- without this it's nil and
+  # template rendering fails. Never actually used to run anything since enabled: false.
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: 16-debian-12
+
 externalDatabase:
   host: superset-pg-rw.lakehouse-bi.svc
   port: 5432
+  user: superset # matches infra/cnpg-clusters/superset-pg.yaml's bootstrap.initdb.owner
   database: superset
-  existingSecret: superset-pg-app
-  existingSecretUserKey: user
+  existingSecret: superset-pg-app # CNPG-generated
   existingSecretPasswordKey: password
 
 redis:

@@ -1,29 +1,26 @@
-# openmetadata chart values, wired to openmetadata-dependencies' bundled MySQL/OpenSearch/Airflow
-# (see dependencies-application.yaml for why those are bundled rather than CNPG). Replicas: 2 per
-# the plan's HA sizing.
+# openmetadata chart values. Verified against `helm show values open-metadata/openmetadata
+# --version 2.0.2` after the first deploy attempt failed schema validation.
+#
+# Database/elasticsearch/pipelineServiceClientConfig are deliberately left at chart defaults:
+# openmetadata-dependencies (dependencies-application.yaml) pins fullnameOverride: mysql and
+# fullnameOverride: opensearch specifically so the openmetadata chart's defaults (host: mysql,
+# host: opensearch) work unmodified when both charts share the lakehouse-governance namespace —
+# overriding them was wrong and caused a schema mismatch (string ports vs the chart's expected
+# integers). Same for pipelineServiceClientConfig's default metadataApiEndpoint.
 replicaCount: 2
-
-openmetadata:
-  config:
-    database:
-      host: openmetadata-dependencies-mysql.lakehouse-governance.svc
-      port: "3306"
-      driverClass: com.mysql.cj.jdbc.Driver
-      dbScheme: mysql
-    elasticsearch:
-      host: openmetadata-dependencies-opensearch.lakehouse-governance.svc
-      port: "9200"
-      searchType: opensearch
-    pipelineServiceClientConfig:
-      hostIp: openmetadata-dependencies-web.lakehouse-governance.svc
-      apiEndpoint: http://openmetadata-dependencies-web.lakehouse-governance.svc:8080
 
 ingress:
   enabled: true
   className: nginx
-  host: openmetadata-delab.nimbus.my
-  tls: true
-  secretName: wildcard-nimbus-tls
+  hosts:
+    - host: openmetadata-delab.nimbus.my
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+    - secretName: wildcard-nimbus-tls
+      hosts:
+        - openmetadata-delab.nimbus.my
 
 resources:
   requests: { cpu: 500m, memory: 1Gi }
