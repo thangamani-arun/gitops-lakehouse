@@ -1,5 +1,20 @@
 # bitnami/superset chart. Verified against `helm show values bitnami/superset --version 5.0.0`
 # after the first deploy attempt failed template rendering.
+#
+# Bitnami moved free-tier images to the "bitnamilegacy/*" Docker Hub repo in 2025; the chart's
+# own defaults (docker.io/bitnami/*) 404 on pull now. Every image reference below is pinned to
+# bitnamilegacy at the exact tag the chart expects (confirmed present via Docker Hub API before
+# using it) -- found by an ImagePullBackOff on the first deploy attempt. The bitnami common
+# chart refuses to render non-default image repos unless explicitly told they're intentional.
+global:
+  security:
+    allowInsecureImages: true
+
+image:
+  registry: docker.io
+  repository: bitnamilegacy/superset
+  tag: 5.0.0-debian-12-r71
+
 replicaCount: 2
 
 postgresql:
@@ -9,7 +24,7 @@ postgresql:
   # template rendering fails. Never actually used to run anything since enabled: false.
   image:
     registry: docker.io
-    repository: bitnami/postgresql
+    repository: bitnamilegacy/postgresql
     tag: 16-debian-12
 
 externalDatabase:
@@ -23,6 +38,15 @@ externalDatabase:
 redis:
   enabled: true
   architecture: standalone
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/redis
+    tag: 8.2.0-debian-12-r0
+  # redis subchart's own os-shell/sentinel sidecars are also bitnamilegacy now
+  sentinel:
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/redis-sentinel
 
 worker:
   replicaCount: 2
