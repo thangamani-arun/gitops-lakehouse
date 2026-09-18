@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workload-spark-jobs
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/thangamani-arun/gitops-lakehouse.git
+    targetRevision: main
+    path: workloads/spark-jobs
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lakehouse-orchestration
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

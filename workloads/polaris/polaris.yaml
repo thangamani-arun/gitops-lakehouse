@@ -62,7 +62,10 @@ spec:
       containers:
         - name: polaris
           image: apache/polaris:1.7.0
-          args: ["server"]
+          # No custom args: the image's default CMD is /opt/jboss/container/java/run/run-java.sh
+          # (a Quarkus run-java.sh launcher). Verified via `docker inspect` -- there is no
+          # "server" subcommand/binary; an explicit args: ["server"] overrides CMD entirely and
+          # fails with "exec: server: executable file not found".
           ports:
             - containerPort: 8181
               name: api
