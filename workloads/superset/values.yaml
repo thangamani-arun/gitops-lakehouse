@@ -50,6 +50,12 @@ redis:
 
 worker:
   replicaCount: 2
+  # Top-level `resources:` below only applies to the main superset (web) deployment -- worker
+  # has its own resourcesPreset (default "large" = 3Gi/1.5cpu) which OOMKilled in practice.
+  # Explicit override, not a preset, per the chart's own recommendation for production.
+  resources:
+    requests: { cpu: "1", memory: 2Gi }
+    limits: { cpu: "2", memory: 4Gi }
 
 beat:
   enabled: true
