@@ -30,13 +30,16 @@ spec:
     # apache/spark image runs as a non-root UID with no real $HOME (/nonexistent), so Ivy's
     # --packages dependency resolution needs an explicit writable cache dir or spark-submit fails.
     spark.jars.ivy: /tmp/.ivy2
-  hostAliases:
-    - ip: "192.168.80.128"
-      hostnames: ["minio.nimbus.my"]
   driver:
     cores: 1
     memory: 2g
     serviceAccount: spark-jobs
+    # There is no top-level spec.hostAliases on SparkApplication -- it must be set on driver and
+    # executor separately (confirmed via `kubectl explain`, the top-level field doesn't exist and
+    # was silently ignored, leaving the executor unable to resolve minio.nimbus.my).
+    hostAliases:
+      - ip: "192.168.80.128"
+        hostnames: ["minio.nimbus.my"]
     envFrom:
       - secretRef: { name: minio-credentials } # AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY -- S3FileIO's
         # default AWS SDK credential chain picks these up automatically, no sparkConf needed.
@@ -50,6 +53,9 @@ spec:
     cores: 1
     instances: 2
     memory: 2g
+    hostAliases:
+      - ip: "192.168.80.128"
+        hostnames: ["minio.nimbus.my"]
     envFrom:
       - secretRef: { name: minio-credentials }
       - secretRef: { name: polaris-catalog-credentials }

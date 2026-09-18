@@ -30,13 +30,15 @@ spec:
     # apache/spark image runs as a non-root UID with no real $HOME (/nonexistent), so Ivy's
     # --packages dependency resolution needs an explicit writable cache dir or spark-submit fails.
     spark.jars.ivy: /tmp/.ivy2
-  hostAliases:
-    - ip: "192.168.80.128"
-      hostnames: ["minio.nimbus.my"]
   driver:
     cores: 1
     memory: 1g
     serviceAccount: spark-jobs
+    # No top-level spec.hostAliases on SparkApplication -- must be set on driver/executor
+    # separately (see sales-summary.yaml's comment).
+    hostAliases:
+      - ip: "192.168.80.128"
+        hostnames: ["minio.nimbus.my"]
     envFrom:
       - secretRef: { name: minio-credentials }
       - secretRef: { name: polaris-catalog-credentials }
@@ -47,6 +49,9 @@ spec:
     cores: 1
     instances: 1
     memory: 1g
+    hostAliases:
+      - ip: "192.168.80.128"
+        hostnames: ["minio.nimbus.my"]
     envFrom:
       - secretRef: { name: minio-credentials }
       - secretRef: { name: polaris-catalog-credentials }
