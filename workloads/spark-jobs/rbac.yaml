@@ -16,7 +16,10 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+    # deletecollection is a distinct verb from delete (needed for the executor's
+    # label-selector bulk-delete of its own configmaps on shutdown) -- found via
+    # "cannot deletecollection resource configmaps" failing customer-loyalty's executors.
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection", "update", "patch"]
   - apiGroups: ["sparkoperator.k8s.io"]
     resources: ["sparkapplications", "sparkapplications/status"]
     verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
