@@ -120,19 +120,33 @@ CREATE TEMPORARY TABLE silver_change_log (
   'password' = '${CHANGELOG_PG_PASSWORD}'
 );
 
-EXECUTE STATEMENT SET
-BEGIN
-  INSERT INTO silver.customers SELECT * FROM cdc_customers;
-  INSERT INTO silver.products SELECT * FROM cdc_products;
-  INSERT INTO silver.sales_transactions SELECT * FROM cdc_sales_transactions;
-  INSERT INTO silver.stores SELECT * FROM cdc_stores;
+-- Separate Kafka source tables (distinct group.id) for the change-log inserts below, not a
+-- reuse of cdc_customers etc. -- since each INSERT here is now its own independently-submitted
+-- Flink job (see comment above), reusing the same group.id would make two unrelated jobs join
+-- the same Kafka consumer group and split partitions between them, each seeing only a subset.
+CREATE TEMPORARY TABLE cdc_customers_cl LIKE cdc_customers (EXCLUDING OPTIONS)
+  WITH ('properties.group.id' = 'flink-silver-customers-changelog');
+CREATE TEMPORARY TABLE cdc_products_cl LIKE cdc_products (EXCLUDING OPTIONS)
+  WITH ('properties.group.id' = 'flink-silver-products-changelog');
+CREATE TEMPORARY TABLE cdc_sales_transactions_cl LIKE cdc_sales_transactions (EXCLUDING OPTIONS)
+  WITH ('properties.group.id' = 'flink-silver-sales-transactions-changelog');
+CREATE TEMPORARY TABLE cdc_stores_cl LIKE cdc_stores (EXCLUDING OPTIONS)
+  WITH ('properties.group.id' = 'flink-silver-stores-changelog');
 
-  INSERT INTO silver_change_log
-    SELECT 'customers', CAST(customer_id AS STRING), CURRENT_TIMESTAMP FROM cdc_customers;
-  INSERT INTO silver_change_log
-    SELECT 'products', CAST(product_id AS STRING), CURRENT_TIMESTAMP FROM cdc_products;
-  INSERT INTO silver_change_log
-    SELECT 'sales_transactions', CAST(txn_id AS STRING), CURRENT_TIMESTAMP FROM cdc_sales_transactions;
-  INSERT INTO silver_change_log
-    SELECT 'stores', CAST(store_id AS STRING), CURRENT_TIMESTAMP FROM cdc_stores;
-END;
+-- Submitted as separate INSERT statements, not one EXECUTE STATEMENT SET -- see raw_ingest.sql's
+-- comment: a STATEMENT SET's concurrent target-table resolution races Polaris's REST auth
+-- session (reproduced identically on iceberg-flink-runtime 1.6.1 and 1.10.2). Trade-off: N
+-- independent jobs/checkpoints instead of one shared one.
+INSERT INTO silver.customers SELECT * FROM cdc_customers;
+INSERT INTO silver.products SELECT * FROM cdc_products;
+INSERT INTO silver.sales_transactions SELECT * FROM cdc_sales_transactions;
+INSERT INTO silver.stores SELECT * FROM cdc_stores;
+
+INSERT INTO silver_change_log
+  SELECT 'customers', CAST(customer_id AS STRING), CURRENT_TIMESTAMP FROM cdc_customers_cl;
+INSERT INTO silver_change_log
+  SELECT 'products', CAST(product_id AS STRING), CURRENT_TIMESTAMP FROM cdc_products_cl;
+INSERT INTO silver_change_log
+  SELECT 'sales_transactions', CAST(txn_id AS STRING), CURRENT_TIMESTAMP FROM cdc_sales_transactions_cl;
+INSERT INTO silver_change_log
+  SELECT 'stores', CAST(store_id AS STRING), CURRENT_TIMESTAMP FROM cdc_stores_cl;

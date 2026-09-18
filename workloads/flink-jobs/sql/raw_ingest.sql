@@ -118,14 +118,19 @@ CREATE TABLE IF NOT EXISTS `raw`.products LIKE `raw`.customers;
 CREATE TABLE IF NOT EXISTS `raw`.sales_transactions LIKE `raw`.customers;
 CREATE TABLE IF NOT EXISTS `raw`.stores LIKE `raw`.customers;
 
-EXECUTE STATEMENT SET
-BEGIN
-  INSERT INTO `raw`.customers
-    SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_customers;
-  INSERT INTO `raw`.products
-    SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_products;
-  INSERT INTO `raw`.sales_transactions
-    SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_sales_transactions;
-  INSERT INTO `raw`.stores
-    SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_stores;
-END;
+-- Submitted as 4 separate INSERT statements (not one EXECUTE STATEMENT SET) -- Flink's planner
+-- resolves a STATEMENT SET's INSERT targets via a stream that issues concurrent loadTable calls
+-- to Polaris, and only some of those concurrent requests carry the Authorization header
+-- (confirmed via Polaris's access log: the failing calls land on a different server thread than
+-- the succeeding ones, ~300ms apart, on the identical resource) -- a client-side auth-session
+-- thread-safety bug, reproduced identically on iceberg-flink-runtime 1.6.1 and 1.10.2 (latest).
+-- Separate statements resolve their target table sequentially, avoiding the race. Trade-off:
+-- 4 independent jobs/checkpoints instead of one shared one -- acceptable for Day-0.
+INSERT INTO `raw`.customers
+  SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_customers;
+INSERT INTO `raw`.products
+  SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_products;
+INSERT INTO `raw`.sales_transactions
+  SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_sales_transactions;
+INSERT INTO `raw`.stores
+  SELECT op, CAST(before AS STRING), CAST(after AS STRING), source.ts_ms, CURRENT_TIMESTAMP FROM src_stores;

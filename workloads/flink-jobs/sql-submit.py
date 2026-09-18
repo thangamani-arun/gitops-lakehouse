@@ -47,7 +47,10 @@ def split_statements(text):
                 buf, in_set = [], False
             continue
         if stripped.endswith(";"):
-            statements.append(("\n".join(buf), False))
+            # A bare INSERT INTO ... SELECT (reading an unbounded Kafka source) is itself a
+            # streaming job that never reaches FINISHED, same as a STATEMENT SET block.
+            is_insert = "\n".join(buf).strip().upper().startswith("INSERT INTO")
+            statements.append(("\n".join(buf), is_insert))
             buf = []
     if buf:
         statements.append(("\n".join(buf), False))
@@ -85,8 +88,12 @@ for i, (stmt, is_streaming) in enumerate(statements):
         time.sleep(10)
         status = _request(f"/v1/sessions/{session}/operations/{op_handle}/status")["status"]
         if status == "ERROR":
-            result = _request(f"/v1/sessions/{session}/operations/{op_handle}/result/0")
-            sys.exit(f"streaming statement failed immediately: {result}")
+            try:
+                result = _request(f"/v1/sessions/{session}/operations/{op_handle}/result/0")
+                print("ERROR result:", result, flush=True)
+            except Exception as e:
+                print("could not fetch error result:", e, flush=True)
+            sys.exit(f"streaming statement failed immediately: {status}")
         print(f"statement {i + 1} -> {status} (streaming job left running)", flush=True)
         continue
 
