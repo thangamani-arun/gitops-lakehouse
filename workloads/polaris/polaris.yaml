@@ -1,46 +1,58 @@
 # Apache Polaris has no published Helm chart yet, so this is a plain Deployment against the
-# official apache/polaris image. Config follows Polaris's EclipseLink(Postgres) + S3 persistence
-# model; double-check field names against the exact 1.7.0 docs at deploy time since this API
-# has moved fast between releases.
-apiVersion: v1
-kind: ConfigMap
+# official apache/polaris image.
+#
+# Persistence: uses the "relational-jdbc" backend (Postgres-native, no persistence.xml/EclipseLink
+# needed), configured entirely via env vars -- this replaced an earlier eclipse-link + mounted
+# polaris-server.yml approach that silently never took effect: Quarkus/Polaris only auto-loads an
+# external config file named application.{yml,properties} from ./config relative to its working
+# dir, not an arbitrarily-named key like polaris-server.yml, so every setting in that ConfigMap
+# (persistence type, realm, S3 storage) was ignored and Polaris fell back to its ephemeral
+# in-memory metastore. With 2 replicas and no shared state, each pod independently bootstrapped
+# its OWN root credential for the default "POLARIS" realm -- confirmed by pulling both pods' full
+# boot logs (different clientId/clientSecret per pod) and by reproducing "unauthorized_client"
+# specifically when a request landed (via the round-robin Service) on the replica that didn't
+# mint the credential being used. relational-jdbc's persistence lives in Postgres, shared by both
+# replicas, so this can't recur.
+#
+# Root/bootstrap credentials: generated out-of-band and stored as the `polaris-bootstrap-credentials`
+# Secret (kubectl create secret, not in git) -- same pattern as `mssql-credentials`, since this is
+# effectively a root password for the catalog. Keys: POLARIS_BOOTSTRAP_CREDENTIALS
+# ("<realm>,<clientId>,<clientSecret>", consumed by the admin-tool bootstrap Job below) and
+# CLIENT_ID/CLIENT_SECRET (consumed by Spark/Flink/StarRocks catalog client configs).
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: polaris-config
+  name: polaris-bootstrap
   namespace: lakehouse-catalog
   annotations:
+    # Must complete before the Deployment (wave 2) starts: relational-jdbc requires the schema
+    # and initial realm to already exist ("apache/polaris-admin-tool bootstrap") -- an
+    # unbootstrapped realm makes the server 401 on every request, not just auth-token ones.
     argocd.argoproj.io/sync-wave: "1"
-data:
-  polaris-server.yml: |
-    polaris:
-      persistence:
-        type: eclipse-link
-        eclipse-link:
-          persistence-unit: polaris
-          conf-file: /deployments/config/persistence.xml
-      realm-context:
-        realms:
-          - nimbus-lakehouse
-      storage:
-        # MinIO, addressed by bare IP -- see plan's Networking section. path-style + insecure
-        # TLS are required because the endpoint is IP-addressed with a self-signed cert.
-        s3:
-          endpoint: https://192.168.80.128:39090
-          path-style-access: true
-          skip-certificate-verification: true
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: polaris-bootstrap-credentials
-  namespace: lakehouse-catalog
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-type: Opaque
-stringData:
-  # Placeholder root principal credentials for the "nimbus-lakehouse" realm bootstrap.
-  # Rotate this at Day-0 (kubectl edit / apply a real value out-of-band) the same way
-  # mssql-credentials is handled -- do not leave the placeholder in a real environment.
-  POLARIS_BOOTSTRAP_CREDENTIALS: "nimbus-lakehouse,root,CHANGE_ME_AT_DAY0"
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: apache/polaris-admin-tool:1.7.0
+          args:
+            - bootstrap
+            - -r
+            - nimbus-lakehouse
+            - -c
+            - "$(POLARIS_BOOTSTRAP_CREDENTIALS)"
+          env:
+            - name: POLARIS_PERSISTENCE_TYPE
+              value: relational-jdbc
+            - name: QUARKUS_DATASOURCE_JDBC_URL
+              value: "jdbc:postgresql://polaris-pg-rw.lakehouse-catalog.svc:5432/polaris"
+          envFrom:
+            - secretRef:
+                name: polaris-pg-app # CNPG-generated app-user secret (QUARKUS_DATASOURCE_USERNAME/PASSWORD)
+            - secretRef:
+                name: polaris-bootstrap-credentials
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -48,7 +60,7 @@ metadata:
   name: polaris
   namespace: lakehouse-catalog
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 2
   selector:
@@ -74,14 +86,24 @@ spec:
           envFrom:
             - secretRef:
                 name: polaris-pg-app # CNPG-generated app-user secret
-            - secretRef:
-                name: polaris-bootstrap-credentials
           env:
+            - name: POLARIS_PERSISTENCE_TYPE
+              value: relational-jdbc
             - name: QUARKUS_DATASOURCE_JDBC_URL
               value: "jdbc:postgresql://polaris-pg-rw.lakehouse-catalog.svc:5432/polaris"
-          volumeMounts:
-            - name: config
-              mountPath: /deployments/config
+            - name: POLARIS_REALM_CONTEXT_REALMS
+              value: nimbus-lakehouse
+            # MinIO, addressed by bare IP -- see plan's Networking section. path-style + insecure
+            # TLS are required because the endpoint is IP-addressed with a self-signed cert.
+            # Set as env vars (not a mounted config file -- see note above on why that never
+            # worked): Quarkus/SmallRye Config maps any polaris.* property to an env var by
+            # upper-casing and replacing non-alphanumerics with underscores.
+            - name: POLARIS_STORAGE_S3_ENDPOINT
+              value: "https://192.168.80.128:39090"
+            - name: POLARIS_STORAGE_S3_PATH_STYLE_ACCESS
+              value: "true"
+            - name: POLARIS_STORAGE_S3_SKIP_CERTIFICATE_VERIFICATION
+              value: "true"
           resources:
             requests:
               cpu: 250m
@@ -89,10 +111,6 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
-      volumes:
-        - name: config
-          configMap:
-            name: polaris-config
 ---
 apiVersion: v1
 kind: Service
