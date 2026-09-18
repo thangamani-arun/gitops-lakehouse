@@ -3,6 +3,20 @@
 # part of the FlinkDeployment) has had a chance to come up first -- sql-submit.py also retries
 # against the gateway's /v1/info for up to 5 minutes on its own, so this is a soft ordering, not
 # a hard requirement.
+#
+# KNOWN ISSUE (Day-0, unresolved): both Jobs currently fail on the first INSERT statement --
+# Polaris intermittently returns 401 on a loadTable call the Iceberg REST client makes while
+# resolving the INSERT's target table, even for a single non-concurrent statement. Confirmed via
+# Polaris's access log that the failing requests land on a Vert.x event-loop thread while
+# succeeding ones land on a worker executor-thread, from the same client connection -- points to
+# a Polaris-side reactive-routing bug where its auth filter isn't applied consistently, not a
+# Flink/Iceberg-client issue. Reproduced identically across iceberg-flink-runtime 1.6.1 and 1.10.2
+# (latest), with and without EXECUTE STATEMENT SET, with and without persistent connections.
+# Already confirmed on Polaris 1.7.0, the latest release as of Day-0 (no newer version to try).
+# CREATE CATALOG/DATABASE/TABLE DDL all work fine against the same catalog from the same client --
+# only the loadTable call made during INSERT resolution is affected. Left `suspend: true` so
+# ArgoCD doesn't keep respawning a crash-looping pod; flip to false once this is root-caused
+# (upstream Polaris fix, or a different REST client path) to resume RAW/SILVER ingestion.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,6 +25,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
+  suspend: true
   backoffLimit: 6
   template:
     spec:
@@ -47,6 +62,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 spec:
+  suspend: true # see flink-sql-submit-raw's comment above -- same unresolved Day-0 known issue
   backoffLimit: 6
   template:
     spec:

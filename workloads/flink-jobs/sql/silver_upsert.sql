@@ -17,7 +17,8 @@ CREATE CATALOG polaris WITH (
   'credential' = '${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}',
   'scope' = 'PRINCIPAL_ROLE:ALL',
   'header.Polaris-Realm' = 'nimbus-lakehouse',
-  'oauth2-server-uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog/v1/oauth/tokens'
+  'oauth2-server-uri' = 'http://polaris.lakehouse-catalog.svc:8181/api/catalog/v1/oauth/tokens',
+  'header.Connection' = 'close'
 );
 
 USE CATALOG polaris;
