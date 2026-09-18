@@ -37,7 +37,10 @@ spec:
             startupProbe:
               timeoutSeconds: 10
               periodSeconds: 15
-              failureThreshold: 20
+              # 20*15=300s wasn't enough -- mysql-0 was still being killed mid-InnoDB-init under
+              # this cluster's still-elevated disk latency (~200-280ms per op, see the plan's
+              # root-cause writeup). Doubled to 600s of startup grace.
+              failureThreshold: 40
             livenessProbe:
               timeoutSeconds: 10
             readinessProbe:
