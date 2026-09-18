@@ -30,6 +30,13 @@ spec:
         airflow:
           resources:
             requests: { cpu: 250m, memory: 512Mi }
+          # logs.persistence defaults to a ReadWriteMany PVC (shared across scheduler/api-server/
+          # triggerer). ceph-block-ec is RBD Filesystem-mode (RWO only) -- found via
+          # ProvisioningFailed "multi node access modes are only supported on rbd block type
+          # volumes". ceph-filesystem (CephFS) supports RWX natively.
+          logs:
+            persistence:
+              storageClassName: ceph-filesystem
   destination:
     server: https://kubernetes.default.svc
     namespace: lakehouse-governance
