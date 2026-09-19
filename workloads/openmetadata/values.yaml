@@ -29,7 +29,12 @@ openmetadata:
           secretKey: password
       dbParams: ""
 
-replicaCount: 2
+# Temporarily 1 (was 2): OpenMetadata's run-db-migrations initContainer has no leader-election/
+# locking around schema migrations, so 2 replicas launching it simultaneously against a freshly
+# initialized DB race each other and one fails permanently on a non-idempotent DDL statement
+# ("relation already exists") -- confirmed via logs after switching to Postgres. Scale back to 2
+# once the first replica has fully migrated and is Ready.
+replicaCount: 1
 
 ingress:
   enabled: true
