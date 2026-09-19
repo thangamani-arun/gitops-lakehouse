@@ -70,7 +70,10 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  replicas: 2
+  replicas: 1 # TEMPORARY diagnostic: testing whether StarRocks/Flink's intermittent
+  # NotAuthorizedException against Polaris is caused by k8s Service load-balancing across
+  # replicas (no equivalent in the flat Docker/LXC networks where this worked fine) rather
+  # than a genuine Polaris server bug. Revert to 2 once the test concludes either way.
   selector:
     matchLabels:
       app: polaris
