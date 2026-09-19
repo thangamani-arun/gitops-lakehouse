@@ -56,6 +56,21 @@ worker:
   resources:
     requests: { cpu: "1", memory: 2Gi }
     limits: { cpu: "2", memory: 4Gi }
+  # The image's run.sh (SUPERSET_ROLE=celery-worker) launches plain `celery ... worker` with no
+  # --concurrency flag, so Celery's prefork pool defaults to multiprocessing.cpu_count() --
+  # which reads the HOST's real CPU count (40 cores/node here), not the container's cgroup CPU
+  # limit. That spawned 40 worker processes inside a 3-4Gi container, OOMKilled within ~30-50s
+  # every time regardless of how high the memory limit was raised. No env var exists to control
+  # this (checked every /opt/bitnami/scripts/* -- no "concurrency" reference anywhere), so this
+  # bypasses run.sh's celery invocation directly with an explicit --concurrency, while still
+  # calling setup.sh first (same init run.sh would have done: config generation, DB check).
+  command: ["/bin/bash"]
+  args:
+    - -c
+    - |
+      set -euo pipefail
+      /opt/bitnami/scripts/superset/setup.sh
+      exec celery --app=superset.tasks.celery_app:app worker --concurrency=4
 
 beat:
   enabled: true
