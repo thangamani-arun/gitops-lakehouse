@@ -14,6 +14,15 @@ spec:
     # (the cluster was apparently created against an older CRD version that did support it).
     requests: { cpu: "4", memory: 8Gi }
     limits: { cpu: "4", memory: 8Gi }
+    # Operator defaults (timeoutSeconds:1, periodSeconds:5, failureThreshold:3 = ~15s budget)
+    # are too tight for this cluster's disk-latency instability: fe.log shows BDB-JE journal
+    # replay routinely taking 4-16s per entry ("replay journal cost too much time"), which
+    # blows the probe budget mid-catch-up and gets the container killed, restarting replay
+    # from scratch -- a self-inflicted crash loop, not a StarRocks bug. Widened to a 180s
+    # failure budget so replay can actually finish.
+    livenessProbeFailureSeconds: 180
+    readinessProbeFailureSeconds: 180
+    startupProbeFailureSeconds: 180
     storageVolumes:
       - name: fe-meta
         storageClassName: ceph-block-ec
