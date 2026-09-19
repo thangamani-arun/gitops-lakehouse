@@ -34,8 +34,7 @@ for catalog/lineage and Ranger for access-policy enforcement across the stack.
 
 > **Note on naming:** all hostnames, IP addresses, and node names in this README and its linked
 > manifests use placeholder values (`*.example.com`, `203.0.113.0/24` — reserved documentation
-> ranges per RFC 2606 / RFC 5737). Replace them with your own before deploying. Cluster/workload
-> resource names (`nimbus-*`) are this project's own internal codename, not a real organization.
+> ranges per RFC 2606 / RFC 5737). Replace them with your own before deploying.
 
 ## Features
 
