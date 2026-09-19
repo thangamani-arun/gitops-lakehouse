@@ -1,12 +1,34 @@
 # openmetadata chart values. Verified against `helm show values open-metadata/openmetadata
 # --version 2.0.2` after the first deploy attempt failed schema validation.
 #
-# Database/elasticsearch/pipelineServiceClientConfig are deliberately left at chart defaults:
-# openmetadata-dependencies (dependencies-application.yaml) pins fullnameOverride: mysql and
-# fullnameOverride: opensearch specifically so the openmetadata chart's defaults (host: mysql,
-# host: opensearch) work unmodified when both charts share the lakehouse-governance namespace —
-# overriding them was wrong and caused a schema mismatch (string ports vs the chart's expected
-# integers). Same for pipelineServiceClientConfig's default metadataApiEndpoint.
+# Elasticsearch/pipelineServiceClientConfig are left at chart defaults: openmetadata-dependencies
+# pins fullnameOverride: opensearch specifically so the chart's default (host: opensearch) works
+# unmodified. Same for pipelineServiceClientConfig's default metadataApiEndpoint.
+#
+# Database is NOT left at chart defaults (host: mysql) -- pointed at the openmetadata-pg CNPG
+# Postgres cluster (infra/cnpg-clusters/openmetadata-pg.yaml) instead. The bundled MySQL
+# StatefulSet in openmetadata-dependencies repeatedly corrupted its InnoDB redo logs under this
+# cluster's disk-latency instability ("Cannot create redo log files because data files are
+# corrupt", every single fresh-PVC init attempt, not just a probe-timeout issue); CNPG/Postgres
+# WAL is far more crash-resilient to the same failure mode, and CNPG was already
+# deployed+healthy here from Day-0 but unused. openmetadata-dependencies' own bundled ingestion
+# Airflow still uses the bundled MySQL for its own metadata (separate, smaller-blast-radius
+# concern, not moved in this pass).
+openmetadata:
+  config:
+    database:
+      host: openmetadata-pg-rw.lakehouse-governance.svc
+      port: 5432
+      driverClass: org.postgresql.Driver
+      dbScheme: postgresql
+      databaseName: openmetadata
+      auth:
+        username: openmetadata
+        password:
+          secretRef: openmetadata-pg-app # CNPG-generated
+          secretKey: password
+      dbParams: ""
+
 replicaCount: 2
 
 ingress:
