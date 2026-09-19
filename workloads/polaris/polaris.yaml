@@ -70,10 +70,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  replicas: 1 # TEMPORARY diagnostic: testing whether StarRocks/Flink's intermittent
-  # NotAuthorizedException against Polaris is caused by k8s Service load-balancing across
-  # replicas (no equivalent in the flat Docker/LXC networks where this worked fine) rather
-  # than a genuine Polaris server bug. Revert to 2 once the test concludes either way.
+  replicas: 2
   selector:
     matchLabels:
       app: polaris
@@ -154,6 +151,14 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
+  # StarRocks/Flink's Iceberg REST clients intermittently got NotAuthorizedException from
+  # Polaris (401, requests landing on a Vert.x event-loop thread with no authenticated user)
+  # -- confirmed via isolation test to be caused by kube-proxy round-robining each request
+  # across the 2 replica pods with no session stickiness (3/5 queries failed at 2 replicas,
+  # 18/18 succeeded at 1). Reproduced on Docker/LXC single-instance deployments works fine
+  # because there's no load-balancer in front there. sessionAffinity pins each client to the
+  # same backend pod for the session, which fixes the symptom without giving up HA.
+  sessionAffinity: ClientIP
   selector:
     app: polaris
   ports:
