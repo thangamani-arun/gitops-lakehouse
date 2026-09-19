@@ -52,3 +52,15 @@ ingress:
 resources:
   requests: { cpu: 500m, memory: 1Gi }
   limits: { cpu: "2", memory: 2Gi }
+
+# Default startupProbe (periodSeconds: 60, failureThreshold: 5 = 5 minutes grace) isn't enough:
+# first boot creates OpenSearch indices for every entity type one at a time, and each index
+# creation call takes 10-40s+ under this cluster's disk-latency instability -- the container was
+# SIGKILLed (exit 137) mid-index-creation well before finishing. Widened to 60 minutes of grace.
+startupProbe:
+  periodSeconds: 60
+  failureThreshold: 60
+  successThreshold: 1
+  httpGet:
+    path: /healthcheck
+    port: http-admin
